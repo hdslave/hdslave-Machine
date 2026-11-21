@@ -133,6 +133,12 @@ KICK's Data I is TONE and its Data J is ACCENT.
 - **MIDI:**
   - The mod wheel deepens the LFO; pitch bend is ±2 semitones.
   - CC 123 (all notes off) releases every note; CC 120 (all sound off) stops them at once.
+  - A key played again before its note-off lets go of the note it was playing, as note-off would: FM TONE and the
+    tonal machines release it, MODAL and PLUCK damp it. Melodee sends a key's repeats with no off between, only one
+    at the end, so before 0.1.1 a held tone stacked copies of itself (hollow, combed, different each time).
+  - A note-off or choke with a host's note id lets go of that note alone; Melodee's (no id) of all the key's.
+- **Data at a note's own frame** (a step's automation, ahead of its note) play in that note: KICK's ACCENT, GENDY's
+  POINTS, PLUCK's pick and MODAL's mallet take the step's value, not the step before's (0.1.1).
 - **Gain and pan** glide across each 32-frame step, so LFO→AMP and level or pan automation don't step.
 - **The filter:**
   - A voice ends when its machine is done and the filter has rung out, so a resonant filter is never cut off.
@@ -196,6 +202,8 @@ tools/bench.sh      # instructions a 128-frame block takes, per patch (callgrind
 - PLUCK's low notes at 96 kHz;
 - every parameter's text read back as itself (each Data under each machine);
 - the host's copy of a Data value right after a machine change in the same block;
+- a key played again before its note-off (striking alone, not stacked), and note-offs and chokes by note id;
+- a Data value set at a note's own frame playing in that note (KICK, PLUCK, MODAL, GENDY, FM TONE);
 - with the screen built in, the page: it paints, K1–K3 follow the cursor, edits change parameters, and the machine
   changes from its own row.
 
@@ -209,7 +217,7 @@ meant to keep the sound must leave them as they are; `make fingerprint-update` r
 | Patch | Instructions a block | Share of one core |
 |---|---|---|
 | Eight held FM voices with everything busy | 209,000 | about 4.4% |
-| An FM chord each second, its notes ringing on | 139,000 | about 2.9% |
+| An FM chord struck again each second, releasing the last | 87,000 | about 1.8% |
 | A busy KIT groove | 47,000 | about 1.0% |
 | Silence | 3,000 | about 0.06% |
 

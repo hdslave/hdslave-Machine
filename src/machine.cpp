@@ -249,19 +249,25 @@ void handle (Plugin& p, const clap_event_header* e, const clap_output_events* ou
             const auto* n = reinterpret_cast<const clap_event_note*> (e);
             if (n->key >= 0 && n->key < 128)
             {
-                if (n->velocity > 0.0) p.engine.noteOn (n->key, (float) n->velocity);
+                if (n->velocity > 0.0) p.engine.noteOn (n->key, (float) n->velocity, n->note_id);
                 else p.engine.noteOff (n->key);
             }
             break;
         }
+        // An off or a choke with a note id (a host that gives them) is that note's alone; -1 (Melodee's) any of the key's.
         case CLAP_EVENT_NOTE_OFF:
         {
             const auto* n = reinterpret_cast<const clap_event_note*> (e);
-            if (n->key >= 0 && n->key < 128) p.engine.noteOff (n->key);
-            else if (n->key < 0) for (int k = 0; k < 128; ++k) p.engine.noteOff (k);
+            if (n->key >= 0 && n->key < 128) p.engine.noteOff (n->key, n->note_id);
+            else if (n->key < 0) for (int k = 0; k < 128; ++k) p.engine.noteOff (k, n->note_id);
             break;
         }
-        case CLAP_EVENT_NOTE_CHOKE: p.engine.chokeKey (reinterpret_cast<const clap_event_note*> (e)->key); break;
+        case CLAP_EVENT_NOTE_CHOKE:
+        {
+            const auto* n = reinterpret_cast<const clap_event_note*> (e);
+            p.engine.chokeKey (n->key, n->note_id);
+            break;
+        }
         case CLAP_EVENT_MIDI: midi (p, reinterpret_cast<const clap_event_midi*> (e)->data); break;
         default: break;
     }

@@ -171,7 +171,7 @@ public:
     uint8_t machineKind() const { return (uint8_t) std::min<int> ((int) v[ParamId::machine], kindCount - 1); }
     uint8_t slotKind (uint32_t slot) const { return slotKinds[std::min<int> ((int) v[kitId (slot & 7, ParamId::kitMachine)], slotKindCount - 1)]; }
 
-    void noteOn (int key, float vel)
+    void noteOn (int key, float vel, int32_t noteId = -1)
     {
         if (key < 0 || key > 127) return;
         vel = vel < 0.0f ? 0.0f : vel > 1.0f ? 1.0f : vel;
@@ -190,16 +190,20 @@ public:
             }
             lastSlot.store ((uint8_t) slot, std::memory_order_relaxed);
             slotHits.fetch_add (1, std::memory_order_relaxed);
-            start (pick(), slotMachine, (int8_t) slot, key, vel);
+            start (pick(), slotMachine, (int8_t) slot, key, vel, noteId);
             return;
         }
         if (drum (kind)) // a drum machine on its own: one hit at a time
         {
             for (auto& voice : voices)
                 if (voice.on && ! voice.choking) chokeVoice (voice);
-            start (pick(), kind, -1, key, vel);
+            start (pick(), kind, -1, key, vel, noteId);
             return;
         }
+        // The key again while it still sounds (Melodee moves a pending note-off past the key's new note-on, so none
+        // comes between): the note it was playing is let go as its note-off would let it go, never left held under
+        // the new one (two of a held tone on one pitch would comb, piling up with each repeat).
+        noteOff (key);
         uint32_t sounding = 0;
         for (auto& voice : voices)
             sounding += voice.on && ! voice.choking;
@@ -212,24 +216,25 @@ public:
                     oldest = &voice;
             if (oldest != nullptr) chokeVoice (*oldest);
         }
-        start (pick(), kind, -1, key, vel);
+        start (pick(), kind, -1, key, vel, noteId);
     }
 
-    void noteOff (int key)
+    // The key's notes let go; with a note id (>= 0) only that note, where its voice has an id of its own.
+    void noteOff (int key, int32_t noteId = -1)
     {
         for (auto& voice : voices)
-            if (voice.on && voice.key == key && ! voice.released)
+            if (voice.on && voice.key == key && ! voice.released && sameNote (voice, noteId))
             {
                 voice.released = true;
                 if (tonal (voice.kind) && voice.ampStage != Voice::ended) voice.ampStage = Voice::release; // struck ones damp, drums ring out
             }
     }
 
-    // A choke: the voices of `key` (all of them for -1) gone at once.
-    void chokeKey (int key)
+    // A choke: the voices of `key` (all of them for -1) gone at once; with a note id, as noteOff.
+    void chokeKey (int key, int32_t noteId = -1)
     {
         for (auto& voice : voices)
-            if (voice.on && (key < 0 || voice.key == key)) chokeVoice (voice);
+            if (voice.on && (key < 0 || voice.key == key) && sameNote (voice, noteId)) chokeVoice (voice);
     }
 
     // Every voice choked (all sound off, a new machine).
@@ -316,6 +321,9 @@ private:
     // The shared section's coefficients worked out again only when one of its parameters (or the rate) changed.
     bool sharedDirty = true;
     float cutoffBase = 0.0f, volumeBase = 1.0f;
+    // Each voice's note id from the host (-1: none given), set as it starts. Kept here rather than in Voice, whose
+    // layout (and the render loop's code over it) stays as it was.
+    int32_t noteIds[voiceCount] {};
 
     Voice& pick()
     {
@@ -332,6 +340,13 @@ private:
         return *pick;
     }
 
+    // CLAP's matching: an id of -1 (Melodee sends no other) is any note; a voice started without one answers to any.
+    bool sameNote (const Voice& voice, int32_t noteId) const
+    {
+        const int32_t own = noteIds[&voice - voices];
+        return noteId < 0 || own < 0 || own == noteId;
+    }
+
     void chokeVoice (Voice& voice)
     {
         if (voice.choking) return;
@@ -341,7 +356,7 @@ private:
         voice.chokeStep = voice.choke / std::max (1.0f, chokeSeconds * rate);
     }
 
-    void start (Voice& voice, uint8_t kind, int8_t slot, int key, float vel)
+    void start (Voice& voice, uint8_t kind, int8_t slot, int key, float vel, int32_t noteId)
     {
         const uint32_t seed = voice.noise.s ^ (uint32_t) (started * 2654435761u) ^ (uint32_t) key;
         voice = Voice {};
@@ -349,6 +364,7 @@ private:
         voice.kind = kind;
         voice.slot = slot;
         voice.key = key;
+        noteIds[&voice - voices] = noteId;
         voice.velocity = vel;
         voice.noteHz = 440.0f * std::exp2 (((float) (slot >= 0 ? slotBaseKey : key) - 69.0f) / 12.0f); // a KIT slot at its own pitch
         voice.order = ++started;
@@ -362,10 +378,11 @@ private:
         if (kind == pluck) voice.write = 0, voice.st[0] = -1.0f; // its line is filled on its first sub-block
         if (kind == cp) voice.burst = 1, voice.nextBurst = 0, voice.e[1] = 0.0f;
         if (kind == gnd) voice.lp = 0.0f;
-        // Its Data now, in case its sound's were last worked out for another machine (changed since the sub-block began).
+        // Its Data as they are now, not as the sub-block began: a value set at the note's own frame (a step's
+        // automation) is what it strikes with (KICK's ACCENT, GENDY's POINTS, PLUCK's pick, MODAL's mallet), and a new
+        // machine's Data are its own. Knobs that have not moved keep their values (fillPatch works out only the rest).
         Patch& patch = slot >= 0 ? slots[slot] : main;
-        if (patch.kind != kind || slot >= 0)
-            fillPatch (patch, kind, slot, dataDestNow, dataOffsetNow);
+        fillPatch (patch, kind, slot, dataDestNow, dataOffsetNow);
         if (slot >= 0) fillSlotMix ((uint32_t) slot);
         if (kind == gendy) // a sine over its POINTS to start from, so the first cycles are a tone with no offset
         {

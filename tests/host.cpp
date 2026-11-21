@@ -61,10 +61,10 @@ struct Events
         a.param = { { sizeof (clap_event_param_value), time, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0 }, id, nullptr, -1, -1, -1, -1, value };
         list.push_back (a);
     }
-    void note (uint32_t time, uint16_t type, int16_t key, double velocity)
+    void note (uint32_t time, uint16_t type, int16_t key, double velocity, int32_t noteId = -1)
     {
         Any a {};
-        a.note = { { sizeof (clap_event_note), time, CLAP_CORE_EVENT_SPACE_ID, type, 0 }, -1, 0, 0, key, velocity };
+        a.note = { { sizeof (clap_event_note), time, CLAP_CORE_EVENT_SPACE_ID, type, 0 }, noteId, 0, 0, key, velocity };
         list.push_back (a);
     }
     void midi (uint32_t time, uint8_t s, uint8_t d1, uint8_t d2)
@@ -89,15 +89,16 @@ struct OutEvents
     } };
 };
 
-// A note or a parameter at a frame of the whole render.
+// A note or a parameter at a frame of the whole render (a note's id -1: none, as Melodee sends).
 struct At
 {
     uint64_t frame;
-    enum { on, off, param, midi } kind;
+    enum { on, off, param, midi, choke } kind;
     int key = 60;
     double value = 1.0;
     std::string name = {};
     uint8_t m[3] {};
+    int32_t id = -1;
 };
 
 struct Instance
@@ -175,8 +176,9 @@ struct Instance
             {
                 if (a.frame < at || a.frame >= at + n) continue;
                 const uint32_t t = (uint32_t) (a.frame - at);
-                if (a.kind == At::on) e.note (t, CLAP_EVENT_NOTE_ON, (int16_t) a.key, a.value);
-                else if (a.kind == At::off) e.note (t, CLAP_EVENT_NOTE_OFF, (int16_t) a.key, 0.0);
+                if (a.kind == At::on) e.note (t, CLAP_EVENT_NOTE_ON, (int16_t) a.key, a.value, a.id);
+                else if (a.kind == At::off) e.note (t, CLAP_EVENT_NOTE_OFF, (int16_t) a.key, 0.0, a.id);
+                else if (a.kind == At::choke) e.note (t, CLAP_EVENT_NOTE_CHOKE, (int16_t) a.key, 0.0, a.id);
                 else if (a.kind == At::param) e.param (t, id (a.name), a.value);
                 else e.midi (t, a.m[0], a.m[1], a.m[2]);
             }
@@ -1229,6 +1231,102 @@ void engineReview()
     if (noiseAt[1] > 2.5 * noiseAt[0]) std::printf ("FAIL MODAL NOISE: %.3f at 192 kHz against %.3f at 48\n", noiseAt[1], noiseAt[0]), ++failures;
 }
 
+// A key played again before its note-off. Melodee moves a pending off past the key's new on, so a held ORGAN or FM
+// TONE (AMP DECAY INF) hears on, on, on, then one off. Each new on lets go of the note the key was playing, as its
+// note-off would, so the key strikes alone and never stacks copies of itself (a comb, different each time); the one
+// off then releases it. With note ids, an off or a choke for one note leaves the key's newer note sounding.
+void repeatedKeys()
+{
+    std::vector<float> l, r, alone;
+    for (int machine : { 16, 0 }) // ORGAN, FM TONE
+    {
+        const int key = 57;
+        {
+            Instance m;
+            m.setup ({ { "Machine", (double) machine } });
+            m.render (1.5, { { 0, At::on, key, 1.0 } }, alone, r);
+        }
+        Instance m;
+        m.setup ({ { "Machine", (double) machine } });
+        // Three ons, the last on the 32-frame grid where the lone note started (the middle one off it, out of phase).
+        const size_t last = 48000;
+        m.render (2.5, { { 0, At::on, key, 1.0 }, { 17150, At::on, key, 1.0 }, { last, At::on, key, 1.0 } }, l, r);
+        // Once RELEASE (250 ms) has taken the older two away, the last one sounds alone: the lone note, sample for sample.
+        double off = 0.0;
+        for (size_t i = 19200; i < 72000; ++i) off = std::max (off, (double) std::fabs (l[last + i] - alone[i]));
+        const double level = rms (l, last + 19200, last + 72000) / rms (alone, 19200, 72000);
+        if (off > 1e-5 || std::fabs (level - 1.0) > 0.01)
+            std::printf ("FAIL %s: a key played again stacks (%.4f from the lone note, %.3f times its level)\n", machines[machine], off, level), ++failures;
+        ++checks;
+        // The one off releases it.
+        m.render (1.0, { { 0, At::off, key } }, l, r);
+        CHECK (rms (l, 0, 2400) > 0.05 && peak (l, 48000 * 6 / 10) < 0.002);
+    }
+    // Note ids: the first note's off (or choke) lets go of it alone; the second's, or an off with no id, of the second.
+    {
+        Instance m;
+        m.setup (pureSine);
+        m.render (1.0, { { 0, At::on, 60, 1.0, "", {}, 1 }, { 4800, At::on, 60, 1.0, "", {}, 2 }, { 9600, At::off, 60, 0.0, "", {}, 1 } }, l, r);
+        CHECK (rms (l, 38400, 48000) > 0.1); // the second still held
+        m.render (1.0, { { 0, At::off, 60, 0.0, "", {}, 2 } }, l, r);
+        CHECK (peak (l, 28800) < 0.002);
+        m.render (0.5, { { 0, At::on, 62, 1.0, "", {}, 3 }, { 4800, At::on, 62, 1.0, "", {}, 4 }, { 9600, At::choke, 62, 0.0, "", {}, 3 } }, l, r);
+        CHECK (rms (l, 19200, 24000) > 0.1);
+        m.render (0.5, { { 0, At::choke, 62, 0.0, "", {}, 4 } }, l, r);
+        CHECK (peak (l, 4800) < 1e-4);
+        m.render (0.5, { { 0, At::on, 64, 1.0, "", {}, 5 }, { 4800, At::off, 64 } }, l, r);
+        CHECK (peak (l, 4800 + 14400) < 0.002); // no id: the key's notes, whatever theirs
+    }
+}
+
+// A Data value set at a note's own frame, just before it (a step's automation, which Melodee sends with the step's
+// notes), plays in that note. What a machine takes as it strikes is the new value, not the last step's: KICK's
+// ACCENT, PLUCK's PICK, MODAL's MALLET, GENDY's POINTS, and FM TONE's RATIO C up to the next 32-frame step.
+void dataAtNote()
+{
+    struct Case { int machine; const char* data; double value; int key; double velocity; };
+    for (const Case& c : { Case { 17, "Data J", 1.0, 36, 0.3 }, Case { 13, "Data D", 0.05, 57, 1.0 }, Case { 12, "Data F", 1.0, 57, 1.0 },
+                           Case { 14, "Data A", 0.0, 57, 1.0 }, Case { 0, "Data B", 0.0, 57, 1.0 } })
+    {
+        // The value set long before the note, at the note's frame, or never.
+        std::vector<float> early, atNote, never, r;
+        auto play = [&] (std::vector<float>& out, int when) {
+            Instance m;
+            m.setup ({ { "Machine", (double) c.machine } });
+            if (when == 0) m.setup ({ { c.data, c.value } });
+            else m.setup ({}); // the same frames before the note
+            std::vector<At> events;
+            if (when == 1) events.push_back ({ 1000, At::param, 0, c.value, c.data });
+            events.push_back ({ 1000, At::on, c.key, c.velocity });
+            m.render (0.5, events, out, r);
+        };
+        play (early, 0);
+        play (atNote, 1);
+        play (never, 2);
+        if (atNote != early) std::printf ("FAIL %s: %s at the note's frame plays as the value before it\n", machines[c.machine], c.data), ++failures;
+        ++checks;
+        CHECK (never != early); // (the value is one the note hears)
+    }
+    // The same at any block size: a key again at the frame of a Data change, then its off.
+    for (int machine : { 16, 12, 13, 17 })
+    {
+        const std::vector<At> events { { 0, At::on, 57, 1.0 }, { 3001, At::param, 0, 0.2, "Data C" }, { 3001, At::on, 57, 0.8 },
+                                       { 7000, At::on, 57, 0.6 }, { 20000, At::off, 57 } };
+        uint64_t first = 0;
+        for (uint32_t block : { 128u, 1u, 37u, 4096u })
+        {
+            Instance m;
+            m.setup ({ { "Machine", (double) machine } });
+            std::vector<float> l, r;
+            m.render (0.6, events, l, r, block);
+            const uint64_t h = hash (l, r);
+            if (block == 128u) first = h;
+            else if (h != first) std::printf ("FAIL %s: a key again at a Data change differs at block %u\n", machines[machine], block), ++failures;
+            ++checks;
+        }
+    }
+}
+
 // The same output whatever the block size, with notes and changes inside blocks.
 void blockSizes()
 {
@@ -1329,6 +1427,8 @@ int main (int argc, char** argv)
     stateAndPresets();
     kitAndStates();
     engineReview();
+    repeatedKeys();
+    dataAtNote();
     blockSizes();
     blockSizesBarrage();
     fuzz();

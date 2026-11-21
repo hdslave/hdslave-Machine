@@ -15,7 +15,7 @@
 #include <strings.h>
 
 #ifndef MACHINE_VERSION
-#define MACHINE_VERSION "0.1.0"
+#define MACHINE_VERSION "0.1.1"
 #endif
 
 namespace machine
