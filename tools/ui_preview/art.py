@@ -34,6 +34,8 @@ def fit(tile, size):
 
 src = Image.open('assets/explore/acoustic-glyphs.png').convert('RGB')
 for i,name in enumerate(names):
+    if name == 'fm':
+        continue  # The digital rings have their own master.
     col,row=i%3,i//3
     tile=src.crop((src.width*col//3,src.height*row//3,
                    src.width*(col+1)//3,src.height*(row+1)//3))
@@ -51,28 +53,51 @@ for i,name in enumerate(names):
 
 extended_names = "terrain phase vox modal pluck gendy pulsar organ".split()
 extended_atlas = Image.open('assets/explore/extended-acoustic-glyphs.png').convert('RGB')
-for i, name in enumerate(extended_names):
+for name, i in {'terrain': 0, 'phase': 1, 'vox': 4, 'modal': 3, 'pulsar': 6, 'organ': 7}.items():
     col, row = i % 4, i // 4
     w, h = extended_atlas.size
     cell = extended_atlas.crop((col*w//4, row*h//2, (col+1)*w//4, (row+1)*h//2))
     bounds = cell.convert('L').point(lambda p: 255 if p > 29 else 0).getbbox()
     fit(cell.crop(bounds), (30, 30)).save(dest/(name+'.png'))
 
-kick = Image.open('assets/explore/kick-pressure.png').convert('RGB')
-bounds = kick.convert('L').point(lambda p: 255 if p > 29 else 0).getbbox()
-fit(kick.crop(bounds), (30,30)).save(dest/'kick.png')
+for name, master in {'fm': 'fm-phase-rings', 'pluck': 'pluck-string',
+                     'gendy': 'gendy-breakpoints', 'kick': 'kick-pressure'}.items():
+    with Image.open(Path('assets/explore')/(master+'.png')) as image:
+        glyph = image.convert('RGB')
+    bounds = glyph.convert('L').point(lambda p: 255 if p > 29 else 0).getbbox()
+    fit(glyph.crop(bounds), (30,30)).save(dest/(name+'.png'))
 extended_names.append('kick')
 
-source=Image.open('assets/explore/acid-print-studies.png').convert('RGB')
-# Sample the inner edge of each print to keep the adjacent ink out of its crop.
-for i, name in enumerate(('checker-well','contour-pinch','wire-membrane')):
-    tile=source.crop((0,round(i*source.height/3)+3,source.width,round((i+1)*source.height/3)-3))
-    tile=tile.resize((68,21),Image.Resampling.LANCZOS)
-    tile=tile.filter(ImageFilter.UnsharpMask(radius=.6,percent=65,threshold=4)).point(lambda n:round(n*.88))
-    print_tile=indexed(tile)
-    print_tile.save(Path('assets/explore')/(name+'-lcd.png'))
-    if i==0:
-        print_tile.save(dest/'checker-well.png')
+# Rows correspond to strips in each master, from top to bottom.
+masters = {
+    'acid-print-studies': ('fm', 'phase', 'terrain'),
+    'banners-metal': ('hh', 'cy-cb', 'efm'),
+    'banners-resonance': ('modal', 'kick'),
+}
+for name in ('bd', 'sd', 'cp', 'gnd', 'kit', 'vox', 'pluck', 'gendy', 'pulsar', 'organ'):
+    masters['banner-'+name] = (name,)
+all_names = names + extended_names
+assigned = [name for strips in masters.values() for name in strips]
+if sorted(assigned) != sorted(all_names):
+    raise ValueError("Each machine needs exactly one header print")
+
+banner_dir = dest/'banners'
+banner_dir.mkdir(exist_ok=True)
+for master, strips in masters.items():
+    with Image.open(Path('assets/explore')/(master+'.png')) as image:
+        source = image.convert('RGB')
+    for i, name in enumerate(strips):
+        top = round(i*source.height/len(strips))+3
+        bottom = round((i+1)*source.height/len(strips))-3
+        tile = source.crop((0, top, source.width, bottom))
+        tile = tile.resize((68,21), Image.Resampling.LANCZOS)
+        tile = tile.filter(ImageFilter.UnsharpMask(radius=.6, percent=65, threshold=4))
+        tile = indexed(tile.point(lambda n: round(n*.88)))
+        tile.save(banner_dir/(name+'.png'))
+        if master == 'acid-print-studies':
+            study = ('checker-well','contour-pinch','wire-membrane')[i]
+            tile.save(Path('assets/explore')/(study+'-lcd.png'))
+
 def dump(p):
     im=Image.open(dest/(p+'.png'))
     data=im.tobytes()
@@ -87,4 +112,5 @@ Path('ui/art.h').write_text(
     'inline constexpr uint8_t icons[][size*size]={\n'+',\n'.join(map(dump,names+extended_names))+'};\n'
     'inline constexpr uint8_t portraits[7][portraitW*portraitH]={\n'
     +',\n'.join(dump(n+'-portrait') for n in names[1:8])+'};\n'
-    'inline constexpr uint8_t band[]='+dump('checker-well')+';\n}\n')
+    'inline constexpr uint8_t banners[][bandWidth*bandHeight]={\n'
+    +',\n'.join(dump('banners/'+name) for name in all_names)+'};\n}\n')

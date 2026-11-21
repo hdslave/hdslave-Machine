@@ -443,11 +443,96 @@ void testBreakpointUpdates() {
     check(moved.n > 0 && moved.n < 6000, "breakpoint update pixel budget");
     std::printf("breakpoint trace, scope and meters=%d pixels\n", moved.n);
 }
+void testMachinePrints() {
+    Rig rig;
+    for (int kind = 0; kind < machineCount; ++kind) {
+        rig.m = model(kind);
+        rig.settle();
+        const auto &print = art::banners[kind];
+        for (int prior = 0; prior < kind; ++prior)
+            check(std::memcmp(print, art::banners[prior], sizeof print) != 0, "each machine has a distinct print");
+        for (int pass = 0; pass < 2; ++pass) {
+            if (pass) {
+                motion(rig.m, 3);
+                rig.m.kitSlot = 5;
+                rig.paint();
+            }
+            for (int y = 0; y < art::bandHeight; ++y)
+                for (int x = 0; x < art::bandWidth; ++x) {
+                    auto ink = print[y * art::bandWidth + x];
+                    check(rig.frame[(2 + y) * width + 204 + x] == (ink ? art::inks[ink] : 0xff100c18),
+                          "correct static machine print through meter and slot changes");
+                }
+        }
+    }
+}
+void testSelectorEdits() {
+    for (bool kit : {false, true}) {
+        Rig r;
+        const uint32_t selector = kit ? slotsBase : 0;
+        const int choices = kit ? slotKindCount : machineCount;
+        auto setChoice = [&](int choice, int slot = 0) {
+            r.m = build([&](int id) {
+                if (kit && id == 0)
+                    return float(Kind::Kit) / (machineCount - 1);
+                if (uint32_t(id) == selector)
+                    return float(choice) / (choices - 1);
+                return defaultValue(id);
+            }, slot);
+        };
+        setChoice(0);
+        if (kit)
+            r.key(Key::Wheel, 2);
+        r.key(Key::Push);
+        Edit edits[4]{};
+        int n;
+        for (int step = 1; step < choices; ++step) {
+            r.screen.input(r.m, Key::Wheel, 1, false, edits, n);
+            check(n == 1 && edits[0].id == selector && notch(edits[0].value, choices) == step,
+                  "consecutive selector edits across machine changes");
+            setChoice(step);
+            if (step % 2)
+                r.paint();
+        }
+        setChoice(1);
+        r.screen.input(r.m, Key::Wheel, 1, false, edits, n);
+        check(!n, "external machine change exits edit before next detent");
+        if (kit) {
+            r.key(Key::Wheel, -1);
+            r.key(Key::Push);
+            r.screen.input(r.m, Key::Wheel, 1, false, edits, n);
+            check(n == 1, "slot machine edit starts");
+            setChoice(2, 1);
+            r.settle();
+            r.screen.input(r.m, Key::Wheel, 1, false, edits, n);
+            check(!n, "a pad change cannot redirect a pending slot machine edit");
+        }
+    }
+}
+void testGroupJumpViewport() {
+    Rig r;
+    for (int direction : {1, -1}) {
+        for (int jump = 0; jump < 4; ++jump) {
+            r.key(Key::Nudge, direction);
+            r.settle();
+            uint32_t ids[3];
+            r.screen.knobs(r.m, ids);
+            int y = ids[0] == 0 ? 52 : 67;
+            check(r.frame[(y + 13) * width + 9] == 0xffcd87e2, "group jump places focus at top");
+            Frame partial = r.frame;
+            r.paint(true);
+            check(r.frame == partial, "group jump partial matches whole");
+        }
+    }
+}
 void test() {
     testInputAndPaint();
     testAlgorithms();
     testEnvelopeAndKitControls();
     testLayoutAndScroll();
+    testMachinePrints();
+    testSelectorEdits();
+    testGroupJumpViewport();
     testVoiceDiagrams();
     testSlotDiagrams();
     testKickMapping();
@@ -484,7 +569,7 @@ void bench() {
     std::printf("terrain full %.6f ms/paint\n", terrainMs);
     constexpr size_t bytes = sizeof(font::body) + sizeof(font::bodyWidth) + sizeof(font::title) +
                              sizeof(font::titleWidth) + sizeof(art::inks) + sizeof(art::icons) +
-                             sizeof(art::portraits) + sizeof(art::band);
+                             sizeof(art::portraits) + sizeof(art::banners);
     std::printf("compiled fonts and art: %zu bytes; Screen: %zu bytes\n", bytes, sizeof(Screen));
 }
 }

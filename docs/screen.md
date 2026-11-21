@@ -1,12 +1,12 @@
 # Machine screen
 
-A warped checkerboard and a dark violet sphere share a 68 × 21 pixel print beside the machine name. The name and the machine number each have their own space. Each of the 18 machines has its own lavender sound emblem. The first seven drums also have a larger portrait in the diagram panel. The dots, grid and print stay still.
+Each of the 18 machines pairs a lavender sound emblem with a 68 × 21 pixel print. FM TONE pairs phase rings with the checker well, GENDY pairs a breakpoint loop with folded graph paper, and ORGAN lines up its pipes beside the drawbars emblem. The print has its own space between the name and the machine number. In KIT it identifies the kit while the title and diagram follow the active slot. The first seven drums also have a larger portrait in the diagram panel. [All 18 machine headers](../assets/previews/machine-prints-2x.png)
 
 Of the three initial directions, Phase Fold left the most usable space around the values. Its original screen is preserved. The finished layout keeps its eight scrolling rows and gives the sound diagrams and three knob cards a six-pixel gutter. [Three directions](../assets/explore/directions.png) · [First take](../assets/explore/phase-fold-take-1.png) · [Header studies at native size](../assets/explore/header-print-proofs.png) · [Panel contact sheet](../assets/previews/contact-sheet-2x.png)
 
 ## Playing the page
 
-Turn the wheel to move by row. Push to enter or leave edit mode. During an edit, the wheel moves one choice or 1/128 of a continuous range per detent. Shift and wheel use 1/1024 when the host forwards the event. Minus and Plus jump to the first row of the adjacent group or edit by a coarse increment. K1–K3 follow the cursor and the next two rows. A hollow marker points from the physical pot toward its pickup value. Hold Shift for the legend.
+Turn the wheel to move by row. Push to enter or leave edit mode. During an edit, the wheel moves one choice or 1/128 of a continuous range per detent. Keep turning on MACHINE or a kit slot’s MACH row to audition successive machines. An external machine change exits the edit. Shift and wheel use 1/1024 when the host forwards the event. Minus and Plus jump to the adjacent group with one preceding row for context, or edit by a coarse increment. K1–K3 follow the cursor and the next two rows. A hollow marker points from the physical pot toward its pickup value. Hold Shift for the legend.
 
 The interface accepts the engine's normalized rows and display strings. FM ENV adds Group::FmEnv and the FmAttack, FmDecay, FmEnd and FmLevel roles. The data field identifies modulator A (0) or B (1). The KIT SLOT row uses local ID 0xffffff00. The demo glue handles a wheel edit on that ID locally and drops it from the parameter mapping. An AMP DECAY value of INF draws a held level until release.
 
@@ -34,18 +34,20 @@ KICK follows ORGAN as machine 17 (18/18 on the display). Its two pressure plates
 
 ## Verification and cost
 
-All 30 rendered states matched their reference hashes on Mac and Linux arm64. Control, stride, full and partial redraw, zero-allocation, gutter and idle-write tests passed. The Mac fixture also passed with address and undefined-behavior sanitizers enabled. The demo agreed with the engine's 18 machine names, 12 valid KIT choices, extended Data IDs and defaults, and 139-parameter count. The real Melodee host painted Edit and Stage. Its KICK capture returned 33, 34 and 17 for TONE, ACCENT and FREQ.
+All 30 rendered states matched their reference hashes on Mac and Linux arm64. Against the saved KICK edition, pixel differences in these fixtures were confined to the assigned emblems and prints. Each print stayed fixed during meter updates and KIT slot selection. Control, stride, full and partial redraw, zero-allocation, gutter and idle-write tests passed. The Mac fixture also passed AddressSanitizer and UndefinedBehaviorSanitizer with `-fno-inline` to keep its full-frame test buffers in separate stack frames.
+
+In Melodee, the real instrument advanced through successive MACHINE choices from a single push, and two further detents on KIT's MACH row selected CP. Plus and Minus brought FILTER, LFO and AMP to the second visible row. Eight host captures matched the fixture’s native icon and banner pixels. Edit and Stage both painted. The silent demo’s KICK capture mapped TONE, ACCENT and FREQ to 33, 34 and 17. [Screens from the real plug-in](../assets/previews/engine-controls.png)
 
 Mean elapsed milliseconds per paint, 2,400 iterations per case.
 
 | Paint | M4 Max | Linux arm64 VM, Cortex-A55 compiler target |
 |---|---:|---:|
-| Full FM page | 0.0221 | 0.0299 |
-| Full TERRAIN page | 0.0258 | 0.0363 |
-| Cursor | 0.0065 | 0.0105 |
-| Meter | 0.0017 | 0.0019 |
+| Full FM page | 0.0212 | 0.0333 |
+| Full TERRAIN page | 0.0255 | 0.0398 |
+| Cursor | 0.0064 | 0.0102 |
+| Meter | 0.00057 | 0.00073 |
 | Idle | 0.00017 | 0.00015 |
 
-The initial FM-to-BD change replaced 4,792 pixels. Subsequent sweep frames changed at most 218 pixels in the header. Peak counts were 5,513 for the cursor glide, 35 for meters, 213 for scope and 247 for meters with scope. The GENDY fixture changed 660 pixels across its breakpoint diagram, meters and scope. At rest the renderer touched zero pixels. Embedded art and fonts occupy 50,412 bytes of the 256 KB budget. Screen state occupies 2,416 bytes.
+The initial FM-to-BD change replaced 6,064 pixels, including the new print. Subsequent sweep frames changed at most 201 pixels in the header. Peak counts were 5,513 for the cursor glide, 35 for meters, 213 for scope and 247 for meters with scope. The GENDY fixture changed 660 pixels across its breakpoint diagram, meters and scope. At rest the renderer touched zero pixels. Embedded art and fonts occupy 74,688 bytes of the 256 KB budget. Screen state occupies 2,432 bytes.
 
 The Linux figures measure the VM. Actual panel contrast, SPI transfer time, physical control feel and drawing alongside the running sound engine still need a test on the MPC.

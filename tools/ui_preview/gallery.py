@@ -80,3 +80,16 @@ for i,path in enumerate(states[21:]):
     im=Image.open(gallery/'states'/path.stem/'melodee.png')
     added.paste(im,(i%3*320,i//3*240))
 added.save(gallery/'new-machines.png')
+
+# Show the icon and the assigned print together, exactly as the panel paints them.
+machine_pages = [0, *range(5, 13), *range(21, len(states))]
+header_sheet = Image.new('RGB', (1340, 86 + 90*((len(machine_pages)+1)//2)), (17, 14, 24))
+draw = ImageDraw.Draw(header_sheet)
+draw.text((20, 18), 'Machine prints', font=title, fill='#f1ebef')
+draw.text((1034, 34), 'RGB565  /  2x', font=labels, fill='#bcabc9')
+for i, state_index in enumerate(machine_pages):
+    path = gallery/'states'/states[state_index].stem/'panel.png'
+    with Image.open(path) as page:
+        header = page.crop((0, 2, 320, 37))
+    header_sheet.paste(scale(header, 2), (20+660*(i%2), 84+90*(i//2)))
+header_sheet.save(gallery/'machine-prints-2x.png', optimize=True)

@@ -57,27 +57,31 @@ void heading(Raster &r, int machine, int slot, int drum) {
     r.text(42, ty, big, paper, 24, true);
     r.box(0, r.h - 1, r.w, 1, violet);
 }
-void meters(Raster &r, const Model &m, const Host &h) {
+static_assert(std::size(art::banners) == machineCount);
+void machinePrint(Raster &r, int machine) {
     r.box(0, 0, r.w, r.h, black);
     constexpr int markX = 2;
     for (int y = 0; y < art::bandHeight; ++y)
         for (int x = 0; x < art::bandWidth; ++x) {
-            auto ink = art::band[y * art::bandWidth + x];
+            auto ink = art::banners[machine][y * art::bandWidth + x];
             if (ink)
                 r.dot(markX + x, y, art::inks[ink]);
         }
     char number[8];
-    std::snprintf(number, sizeof number, "%02u/%02u", unsigned(machineId(m) + 1), unsigned(machineCount));
+    std::snprintf(number, sizeof number, "%02u/%02u", unsigned(machine + 1), unsigned(machineCount));
     r.text(r.w - 36, 7, number, paper);
-    r.text(2, 24, machineId(m) == 8 ? "SLOTS" : "VOICE", muted);
+}
+void meters(Raster &r, const Model &m, const Host &h) {
+    r.box(0, 0, r.w, r.h, black);
+    r.text(2, 3, machineId(m) == 8 ? "SLOTS" : "VOICE", muted);
     if (h.playing)
-        r.box(40, 26, 2, 2, cyan);
+        r.box(40, 5, 2, 2, cyan);
     for (int k = 0; k < 8; ++k) {
         int x = 48 + k * 8, level = position(m.voices[k], 4);
         for (int i = 0; i < 4; ++i)
-            r.box(x, 30 - i * 2, 5, 1, i < level ? cyan : rule);
+            r.box(x, 9 - i * 2, 5, 1, i < level ? cyan : rule);
         if (machineId(m) == 8 && k == slotId(m))
-            r.box(x, 32, 5, 1, paper);
+            r.box(x, 11, 5, 1, paper);
     }
     r.box(0, r.h - 1, r.w, 1, violet);
 }
@@ -178,19 +182,36 @@ void Screen::knobs(const Model &m, uint32_t ids[3]) const {
     for (int k = 0; k < 3; ++k)
         ids[k] = pos + k < count(m) ? m.rows[pos + k].id : none;
 }
+void Screen::syncControls(const Model &m) {
+    cursor_ = boundedCursor(cursor_, m);
+    const int machine = machineId(m), slot = slotId(m), drum = slotKind(m.kitMachines[slot]);
+    if (editing_ && count(m)) {
+        const Row &row = m.rows[cursor_];
+        const bool switched = machine != controlMachine_;
+        const bool slotChanged = machine == int(Kind::Kit) && slot != controlSlot_;
+        const bool drumChanged = machine == int(Kind::Kit) && !slotChanged && drum != controlDrum_;
+        if (switched || drumChanged || (slotChanged && row.group == Group::Slot)) {
+            Role selector = switched ? Role::Machine : slotChanged ? Role::KitSlot : Role::KitMachine;
+            // The host echoes the selected step in its next model, before either input or paint.
+            editing_ = row.role == selector && row.id == pendingSelector_ && row.steps > 1 &&
+                       position(row.value, row.steps - 1) == pendingStep_;
+            pendingSelector_ = none;
+        }
+    }
+    controlMachine_ = machine;
+    controlSlot_ = slot;
+    controlDrum_ = drum;
+    if (!count(m))
+        editing_ = false;
+}
 bool Screen::input(const Model &m, Key key, int delta, bool shift, Edit *out, int &n) {
     n = 0;
-    if (controlMachine_ != machineId(m)) {
-        editing_ = false;
-        controlMachine_ = machineId(m);
-    }
-    cursor_ = boundedCursor(cursor_, m);
-    if (!count(m)) {
-        editing_ = false;
+    syncControls(m);
+    if (!count(m))
         return false;
-    }
     if (key == Key::Push) {
         editing_ = !editing_;
+        pendingSelector_ = none;
         return true;
     }
     if (key != Key::Wheel && key != Key::Nudge)
@@ -211,10 +232,15 @@ bool Screen::input(const Model &m, Key key, int delta, bool shift, Edit *out, in
         if (next != old) {
             out[0] = {row.id, next};
             n = 1;
+            if (row.role == Role::Machine || row.role == Role::KitMachine || row.role == Role::KitSlot) {
+                pendingSelector_ = row.id;
+                pendingStep_ = position(next, row.steps - 1);
+            }
         }
     } else if (key == Key::Wheel) {
         cursor_ = int(std::clamp<int64_t>(int64_t(cursor_) + delta, 0, count(m) - 1));
     } else if (delta) {
+        const int previousCursor = cursor_;
         int first = cursor_;
         while (first && m.rows[first - 1].group == row.group)
             --first;
@@ -230,6 +256,8 @@ bool Screen::input(const Model &m, Key key, int delta, bool shift, Edit *out, in
             if (next < count(m))
                 cursor_ = next;
         }
+        if (cursor_ != previousCursor)
+            top_ = std::max(0, cursor_ - 1);
     }
     return true;
 }
@@ -242,12 +270,7 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
     const bool full = whole || !seen_;
     const int machine = machineId(m), slot = slotId(m), drum = slotKind(m.kitMachines[slot]);
     const bool switched = seen_ && machine != machineId(previous_);
-    if (controlMachine_ != machine) {
-        editing_ = false;
-        controlMachine_ = machine;
-    }
-    if (count(m) == 0)
-        editing_ = false;
+    syncControls(m);
     if (switched) {
         fromMachine_ = machineId(previous_);
         fromSlot_ = slotId(previous_);
@@ -257,12 +280,13 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
     int phase = switched || sweepFrame_ < 16
                     ? int(std::min<uint64_t>(250, elapsed(h.nowMs, sweepStart_)) * 16 / 250)
                     : 16;
-    cursor_ = boundedCursor(cursor_, m);
+    // A group jump can leave spare rows below the last group. Keep that view while moving within it.
+    const int maxTop = std::max(count(m) - rowsVisible, std::min(top_, count(m) - 1));
     if (cursor_ <= top_)
         top_ = cursor_ - 1;
     if (cursor_ >= top_ + rowsVisible - 1)
         top_ = cursor_ - rowsVisible + 2;
-    top_ = index(top_, count(m) - rowsVisible);
+    top_ = index(top_, maxTop);
     int target = (cursor_ - top_) * rowH + 2;
     if (!seen_)
         glideY_ = glideTarget_ = target;
@@ -309,11 +333,14 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
                 r.box(edge, 2, 1, r.h - 4, orchid);
             }
         });
+    if (full || switched)
+        tile(contextX, 2, contextW, art::bandHeight, [&](Raster &r) { machinePrint(r, machine); });
     bool meterDirty = full || switched || h.playing != previousHost_.playing || slot != slotId(previous_);
     for (int i = 0; i < 8; ++i)
         meterDirty |= position(m.voices[i], 4) != position(previous_.voices[i], 4);
     if (meterDirty)
-        tile(contextX, 2, contextW, headH, [&](Raster &r) { meters(r, m, h); });
+        tile(contextX, 2 + art::bandHeight, contextW, headH - art::bandHeight,
+             [&](Raster &r) { meters(r, m, h); });
     auto group = count(m) ? m.rows[cursor_].group : Group::Machine;
     auto oldGroup = lastCursor_ >= 0 && lastCursor_ < count(previous_) ? previous_.rows[lastCursor_].group
                                                                        : Group::Machine;

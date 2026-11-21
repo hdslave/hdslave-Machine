@@ -66,7 +66,11 @@ public:
     // Something is moving (the sweep, the cursor's glide, meters or scope while voices sound): ask for paints.
     bool animating(const Model& m, const Host& h) const;
 private:
+    void syncControls(const Model& m);
     int controlMachine_ = -1, glideTarget_ = -1;
+    int controlSlot_ = -1, controlDrum_ = -1;
+    uint32_t pendingSelector_ = UINT32_MAX;
+    int pendingStep_ = -1;
     int cursor_ = 0, top_ = 0, lastCursor_ = -1, lastTop_ = -1;
     int fromMachine_ = 0, fromSlot_ = 0, fromKitMachine_ = 1;
     int sweepFrame_ = 16, glideY_ = -1, glideFrom_ = 0;

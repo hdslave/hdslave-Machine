@@ -33,3 +33,15 @@ Generate a four-column, two-row atlas of original sound emblems, using the appro
 ## KICK
 
 Generate a single original resonator-kick emblem in the lavender acoustic family. Two compressed, offset pressure plates dip away from a short, hard attack. Use a narrow black gap, a blunt end, one lilac edge, a cyan glint and a deep-violet underside. The side view should read as a heavy pitch drop at thirty pixels. The master is kick-pressure.png.
+
+## Machine header prints
+
+Use black, violet and lilac ink, a little magenta or cyan, and enough negative space to carry one idea at 68 × 21 pixels. Frame each print edge to edge. Print grain belongs in the master. Large shapes carry the reduced image.
+
+FM TONE, PHASE and TERRAIN use the original checker well, pinched contours and wire membrane. SD takes the split stripes from the center of the impact study. GENDY uses the folded grid from the bottom of the material study. PULSAR and ORGAN take the orbit train and pipes from the top and center of the pressure study.
+
+BD buckles a checked membrane under a strike. CP superimposes palm impressions. HH, CY/CB and EFM DRUM use foil shutters, a flared bell and interfering rings. KIT uses a staggered grid and VOX a set of vowel contours. MODAL traces nodal lines in sand. KICK sends a wave through a checkerboard corridor. For the two replacement prints, pull PLUCK's bands tight at a single point, and turn GND's sine stripes into noise around a narrow impulse.
+
+## Revised sound emblems
+
+Use the KICK pressure plates and the original sound atlas as material references. Give FM TONE two skewed, interwoven phase rings with stepped cuts. Bend GENDY's loop through irregular vertices. Let PLUCK's pick visibly deflect a string. VOX takes the open shape originally drawn for PLUCK. The native emblems occupy 30 × 30 pixels.
