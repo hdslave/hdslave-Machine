@@ -15,7 +15,7 @@ void emblem(Raster &r, int x, int y, int machine) {
 namespace {
 struct Patch {
     bool infiniteDecay = false;
-    float data[8]{};
+    float data[10]{};
     float env[2][4]{};
     float controls[int(Role::LfoDest) + 1]{};
     explicit Patch(const Model &model) {
@@ -23,7 +23,7 @@ struct Patch {
             auto &p = model.rows[i];
             if (p.role == Role::AmpDecay)
                 infiniteDecay = std::strncmp(p.text, "INF", sizeof p.text) == 0;
-            if (p.role == Role::Data && p.data < 8)
+            if (p.role == Role::Data && p.data < 10)
                 data[p.data] = unit(p.value);
             else if (p.role >= Role::FmAttack && p.role <= Role::FmLevel && p.data < 2)
                 env[p.data][int(p.role) - int(Role::FmAttack)] = unit(p.value);

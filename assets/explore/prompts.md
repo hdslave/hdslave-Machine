@@ -29,3 +29,7 @@ The selected header followed a three-part original print study. Bend a checker g
 ## Extended acoustic glyphs
 
 Generate a four-column, two-row atlas of original sound emblems, using the approved acoustic glyphs as the material reference. Each shape has a lavender face, a cold rim and a violet underside. In reading order use folded terrain contours, a hinged phase ramp, vowel pulses, struck modes, a deflected string, an uneven breakpoint polygon, a diminishing pulse train and stepped drawbars. Leave black space around each silhouette for a 30 × 30 reduction. The master is extended-acoustic-glyphs.png.
+
+## KICK
+
+Generate a single original resonator-kick emblem in the lavender acoustic family. Two compressed, offset pressure plates dip away from a short, hard attack. Use a narrow black gap, a blunt end, one lilac edge, a cyan glint and a deep-violet underside. The side view should read as a heavy pitch drop at thirty pixels. The master is kick-pressure.png.

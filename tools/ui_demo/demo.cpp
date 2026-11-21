@@ -84,8 +84,8 @@ bool info(const clap_plugin_t *, uint32_t i, clap_param_info_t *out) {
     out->default_value = plain(id, defaultValue(id));
     if (!id)
         std::strcpy(out->name, "Machine");
-    else if (id <= 8)
-        std::snprintf(out->name, sizeof out->name, "Data %c", 'A' + id - 1);
+    else if (id <= 8 || id == 33 || id == 34)
+        std::snprintf(out->name, sizeof out->name, "Data %c", 'A' + (id <= 8 ? id - 1 : id - 25));
     else if (id < 17) {
         std::strcpy(out->module, "FM Env");
         std::strcpy(out->name, envNames[id - 9]);
@@ -95,8 +95,8 @@ bool info(const clap_plugin_t *, uint32_t i, clap_param_info_t *out) {
     } else {
         int field = (id - slotsBase) % slotStride;
         std::snprintf(out->module, sizeof out->module, "Slot %d", 1 + (id - slotsBase) / slotStride);
-        if (field > 0 && field < 9)
-            std::snprintf(out->name, sizeof out->name, "Data %c", 'A' + field - 1);
+        if ((field > 0 && field < 9) || field >= 11)
+            std::snprintf(out->name, sizeof out->name, "Data %c", 'A' + (field < 9 ? field - 1 : field - 3));
         else
             std::strcpy(out->name, field == 0 ? "Machine" : field == 9 ? "Level" : "Pan");
     }
@@ -113,7 +113,7 @@ bool valueText(const clap_plugin_t *p, clap_id id, double v, char *out, uint32_t
             if (key == id)
                 return norm(id, v);
             if (slotField && key == 0)
-                return float(Kind::Kit) / (machineCount-1);
+                return float(Kind::Kit) / (machineCount - 1);
             return d.value[key].load();
         },
         slot);
@@ -132,7 +132,7 @@ void strike(Demo &d, int key) {
             return;
         voice = key - 36;
         d.slot.store(voice);
-    } else if (machine == 0 || machine >= int(Kind::Terrain))
+    } else if (machine == 0 || (machine >= int(Kind::Terrain) && machine != int(Kind::Kick)))
         voice = key & 7;
     d.strikes[voice].fetch_add(1);
     d.repaint();
@@ -241,7 +241,11 @@ bool paint(const clap_plugin_t *p, const melodee_screen_canvas_t *c) {
             m.voices[k] = 1 - float(h.nowMs - d.stamp[k]) / 220;
     }
     bool changed = d.screen.paint(m, h, c->pixels, int(c->stride), c->whole);
-    d.animates.store(d.screen.animating(m, h));
+    const bool moving = d.screen.animating(m, h);
+    d.animates.store(moving);
+    // The host may suspend audio processing while the silent instrument is at rest.
+    if (moving)
+        d.repaint();
     return changed;
 }
 bool input(const clap_plugin_t *p, const melodee_screen_input_t *e) {

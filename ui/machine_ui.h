@@ -23,7 +23,7 @@ struct Row {           // one parameter, as the list shows it
     uint32_t id;       // its CLAP parameter id (what knobs() names, what an Edit sets)
     Group group;
     Role role;
-    uint8_t data;      // Data A-H as 0-7, FM envelope A/B as 0/1, else 255
+    uint8_t data;      // Data A-J as 0-9, FM envelope A/B as 0/1, else 255
     char name[10];     // capitals as shown: "RATIO C", "SWP TIME"
     char text[12];     // its value as shown: "1.00", "LP", "+0.25", "CLOSED"
     float value;       // where it sits, 0..1

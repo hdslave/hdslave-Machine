@@ -21,13 +21,15 @@ enum class Kind : uint8_t {
     Pluck,
     Gendy,
     Pulsar,
-    Organ
+    Organ,
+    Kick
 };
 inline constexpr const char *machineNames[] = {"FM TONE",  "BD",    "SD",    "CP",      "HH",    "CY/CB",
                                                "EFM DRUM", "GND",   "KIT",   "TERRAIN", "PHASE", "VOX",
-                                               "MODAL",    "PLUCK", "GENDY", "PULSAR",  "ORGAN"};
-inline constexpr Kind slotKinds[] = {Kind::Bd,  Kind::Sd,    Kind::Cp,    Kind::Hh,  Kind::CyCb,  Kind::Efm,
-                                     Kind::Gnd, Kind::Modal, Kind::Pluck, Kind::Vox, Kind::Pulsar};
+                                               "MODAL",    "PLUCK", "GENDY", "PULSAR",  "ORGAN", "KICK"};
+inline constexpr Kind slotKinds[] = {Kind::Bd,    Kind::Sd,  Kind::Cp,     Kind::Hh,
+                                     Kind::CyCb,  Kind::Efm, Kind::Gnd,    Kind::Modal,
+                                     Kind::Pluck, Kind::Vox, Kind::Pulsar, Kind::Kick};
 inline constexpr int machineCount = int(std::size(machineNames)), slotKindCount = int(std::size(slotKinds));
 inline int slotKind(uint8_t id) {
     for (Kind kind : slotKinds)

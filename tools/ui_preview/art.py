@@ -58,6 +58,11 @@ for i, name in enumerate(extended_names):
     bounds = cell.convert('L').point(lambda p: 255 if p > 29 else 0).getbbox()
     fit(cell.crop(bounds), (30, 30)).save(dest/(name+'.png'))
 
+kick = Image.open('assets/explore/kick-pressure.png').convert('RGB')
+bounds = kick.convert('L').point(lambda p: 255 if p > 29 else 0).getbbox()
+fit(kick.crop(bounds), (30,30)).save(dest/'kick.png')
+extended_names.append('kick')
+
 source=Image.open('assets/explore/acid-print-studies.png').convert('RGB')
 # Sample the inner edge of each print to keep the adjacent ink out of its crop.
 for i, name in enumerate(('checker-well','contour-pinch','wire-membrane')):

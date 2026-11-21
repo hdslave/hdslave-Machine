@@ -115,6 +115,19 @@ inline constexpr Control extendedControls[][10] = {
         {"1 3/5'", Unit::count, 0, 8, 0.0f, 9},
         {"1 1/3'", Unit::count, 0, 8, 0.0f, 9},
     },
+    {
+        // KICK
+        {"PITCH", Unit::hz, 30, 250, .35f, 0},
+        {"BEND", Unit::octaves, 0, 4, .45f, 0},
+        {"TIME", Unit::seconds, 0, 0, .42f, 0},
+        {"DECAY", Unit::seconds, 0, 0, .66f, 0},
+        {"ATTACK", Unit::seconds, 0, 0, 0, 0},
+        {"COLOUR", Unit::unit, 0, 1, .3f, 0},
+        {"PULSE", Unit::unit, 0, 1, .5f, 0},
+        {"DRIVE", Unit::unit, 0, 1, .25f, 0},
+        {"TONE", Unit::hz, 150, 18000, .75f, 0},
+        {"ACCENT", Unit::unit, 0, 1, .5f, 0},
+    },
 };
 inline void extendedText(const Control &c, float v, int machine, char *text, size_t size) {
     const float linear = c.lo + (c.hi - c.lo) * v;
@@ -176,6 +189,8 @@ inline void extendedText(const Control &c, float v, int machine, char *text, siz
         float f = c.lo * std::pow(c.hi / c.lo, v);
         if (f >= 1000)
             std::snprintf(text, size, "%.1fk", f / 1000);
+        else if (f < 100)
+            std::snprintf(text, size, "%.1fHz", f);
         else
             std::snprintf(text, size, "%.0fHz", f);
         break;

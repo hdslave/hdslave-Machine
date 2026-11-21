@@ -28,7 +28,7 @@ labels_list=['FM tone / algorithm','FM tone / ratio edit','Filter response','Amp
     'BD / playing','SD / snare','CP / bursts','HH / metal tones','CY / CB','EFM drum','GND / source',
     'Kit / slot 3','Shift / controls','K2 / pickup','Value extremes','Track / coral','Track / mint','Track / violet','Track / yellow','FM modulation envelopes',
     'Terrain / orbit map','Phase / bend','Vox / formants','Modal / resonances','Pluck / pick point',
-    'Gendy / breakpoints','Pulsar / mask','Organ / drawbars']
+    'Gendy / breakpoints','Pulsar / mask','Organ / drawbars','Kick / resonator']
 states=sorted(frames.glob('[0-9][0-9]-*.ppm'))
 assert len(states)==len(labels_list)
 sheet=Image.new('RGB',(24+3*664,112+((len(states)+2)//3)*536),(17,14,24))

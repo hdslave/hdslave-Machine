@@ -21,8 +21,8 @@ inline constexpr const char *dataNames[8][8] = {
     {"SOURCE", "PITCH", "DECAY", "SWEEP"}};
 // Public ids follow the engine. The selected kit slot is local screen navigation.
 constexpr uint32_t slotSelector = 0xffffff00u;
-constexpr int slotsBase = 100, slotStride = 16, slotFields = 11, baseCount = 33, storageSize = 228,
-              paramCount = 121;
+constexpr int slotsBase = 100, slotStride = 16, slotFields = 13, baseCount = 35, storageSize = 228,
+              paramCount = baseCount + 8 * slotFields;
 inline int idAt(int i) {
     return i < baseCount
                ? i
@@ -109,13 +109,17 @@ inline float defaultValue(int id) {
         return dataDefault[id - 1];
     if (id < 17)
         return envDefault[id - 9];
-    if (id < baseCount)
+    if (id < 33)
         return commonDefault[id - 17];
+    if (id < baseCount)
+        return extendedControls[int(Kind::Kick) - int(Kind::Terrain)][8 + id - 33].initial;
     int k = (id - slotsBase) % slotStride, slot = (id - slotsBase) / slotStride;
     if (!k)
         return (slot == 2 ? 1 : slot % 7) / float(slotKindCount - 1);
     if (k <= 8)
         return dataDefault[k - 1];
+    if (k >= 11)
+        return extendedControls[int(Kind::Kick) - int(Kind::Terrain)][k - 3].initial;
     return k == 9 ? .8f : .5f;
 }
 template <class Reader> Model build(Reader read, int slot) {
@@ -164,8 +168,8 @@ template <class Reader> Model build(Reader read, int slot) {
         const auto &controls = extendedControls[drum - int(Kind::Terrain)];
         for (int a = 0; a < 10 && controls[a].name; ++a) {
             const auto &c = controls[a];
-            add(base + 1 + a, g, Role::Data, c.name, c.steps,
-                c.unit == Unit::bipolar || c.unit == Unit::semis, a);
+            int id = a < 8 ? base + 1 + a : kit ? base + 11 + (a - 8) : 33 + (a - 8);
+            add(id, g, Role::Data, c.name, c.steps, c.unit == Unit::bipolar || c.unit == Unit::semis, a);
             m.rows[m.rowCount - 1].initial = c.initial;
         }
     }
@@ -198,6 +202,8 @@ inline Model model(int machine = 0, int slot = 2) {
                 return machine / float(machineCount - 1);
             if (machine >= int(Kind::Terrain) && id >= 1 && id <= 8)
                 return extendedControls[machine - int(Kind::Terrain)][id - 1].initial;
+            if (machine == int(Kind::Kick) && (id == 33 || id == 34))
+                return extendedControls[machine - int(Kind::Terrain)][8 + id - 33].initial;
             return defaultValue(id);
         },
         slot);
@@ -207,7 +213,7 @@ inline Host host() {
 }
 inline void motion(Model &m, int frame, bool meters = true, bool scope = true) {
     for (int k = 0; k < 8 && meters; ++k)
-        m.voices[k] = (m.machine == 0 || m.machine >= 8 || k == 0)
+        m.voices[k] = (m.machine == 0 || (m.machine >= 8 && m.machine != uint8_t(Kind::Kick)) || k == 0)
                           ? float(.50 + .48 * std::sin(frame * .62 + k * .92))
                           : 0.f;
     if (scope)

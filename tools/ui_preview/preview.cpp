@@ -89,7 +89,7 @@ constexpr State states[] = {{"01-fm-algo", 0, 1},    {"02-ratio-edit", 0, 3}, {"
                             {"19-violet", 0, 1},     {"20-yellow", 0, 1},     {"21-fm-envelopes", 0, 11},
                             {"22-terrain", 9, 1},    {"23-phase", 10, 2},     {"24-vox", 11, 2},
                             {"25-modal", 12, 5},     {"26-pluck", 13, 5},     {"27-gendy", 14, 1},
-                            {"28-pulsar", 15, 6},    {"29-organ", 16, 3}};
+                            {"28-pulsar", 15, 6},    {"29-organ", 16, 3},     {"30-kick", 17, 9}};
 void configure(Rig &r, int i) {
     const State &s = states[i];
     r.key(Key::Wheel, s.cursor);
@@ -199,7 +199,7 @@ void animation(const char *name, const fs::path *dir, int mode) {
     int budget = mode == 1 ? 12000 : mode == 2 ? 1500 : mode == 3 ? 6000 : 12000;
     check(peak > 0 && peak < budget, "motion pixel budget");
 }
-void test() {
+void testInputAndPaint() {
     Rig r;
     uint32_t ids[3];
     int n;
@@ -268,20 +268,28 @@ void test() {
     check(!r.screen.paint(r.m, r.h, pad.data(), stride, false), "idle on write sentinel");
     for (auto v : pad)
         check(v == 0xa5a5a5a5, "idle touched a pixel");
+}
+void testAlgorithms() {
     Rig alg;
-    Frame frames[8];
+    std::array<uint64_t, 8> diagrams{};
     for (int i = 0; i < 8; ++i) {
         alg.m.rows[1].value = i / 7.f;
         alg.paint();
-        frames[i] = alg.frame;
-        for (int j = 0; j < i; ++j) {
-            bool different = false;
-            for (int y = 65; y < 149; ++y)
-                for (int x = 202; x < 320; ++x)
-                    different |= frames[j][y * width + x] != frames[i][y * width + x];
-            check(different, "distinct routing geometry");
-        }
+        uint64_t digest = 14695981039346656037ull;
+        for (int y = 65; y < 149; ++y)
+            for (int x = 202; x < 316; ++x) {
+                digest ^= alg.frame[y * width + x];
+                digest *= 1099511628211ull;
+            }
+        check(std::find(diagrams.begin(), diagrams.begin() + i, digest) == diagrams.begin() + i,
+              "distinct routing geometry");
+        diagrams[i] = digest;
     }
+}
+void testEnvelopeAndKitControls() {
+    uint32_t ids[3];
+    int n;
+    Edit out[4]{};
     Rig fm;
     fm.key(Key::Nudge, 1);
     fm.screen.knobs(fm.m, ids);
@@ -314,6 +322,8 @@ void test() {
         }
     amp.paint();
     check(amp.frame != finite, "infinite decay paints");
+}
+void testLayoutAndScroll() {
     static_assert(art::bandWidth <= 70, "header print must leave the entire index cell clear");
     for (int kind = 0; kind < machineCount; ++kind)
         for (Kind slotMachine : slotKinds) {
@@ -345,6 +355,8 @@ void test() {
         }
         check(allocs == baseline, "scroll and whole allocation-free");
     }
+}
+void testVoiceDiagrams() {
     static_assert(std::size(art::icons) == machineCount);
     for (int id = int(Kind::Terrain); id < machineCount; ++id) {
         Rig voice(id);
@@ -370,6 +382,8 @@ void test() {
         voice.paint(true);
         check(partial == voice.frame, "voice partial matches whole");
     }
+}
+void testSlotDiagrams() {
     for (int k = 0; k < slotKindCount; ++k) {
         Rig slot;
         slot.m = build(
@@ -397,6 +411,29 @@ void test() {
                 check(slot.frame[y * width + x] == single.frame[y * width + x],
                       "slot and standalone diagram agree");
     }
+}
+void testKickMapping() {
+    uint32_t ids[3];
+    Rig kick{int(Kind::Kick)};
+    kick.key(Key::Wheel, 9);
+    kick.screen.knobs(kick.m, ids);
+    check(ids[0] == 33 && ids[1] == 34 && ids[2] == 17, "KICK TONE and ACCENT preserve shared parameter IDs");
+    Rig kickSlot;
+    kickSlot.m = build(
+        [](int id) {
+            if (id == 0)
+                return float(Kind::Kit) / (machineCount - 1);
+            if (id == slotsBase)
+                return 1.f;
+            return defaultValue(id);
+        },
+        0);
+    kickSlot.key(Key::Wheel, 11);
+    kickSlot.screen.knobs(kickSlot.m, ids);
+    check(ids[0] == 111 && ids[1] == 112 && ids[2] == 109 && kickSlot.m.kitMachines[0] == uint8_t(Kind::Kick),
+          "KIT KICK TONE and ACCENT preserve level and pan IDs");
+}
+void testBreakpointUpdates() {
     Rig gendy{int(Kind::Gendy)};
     gendy.settle();
     auto silent = gendy.frame;
@@ -405,6 +442,16 @@ void test() {
     auto moved = difference(gendy.frame, silent);
     check(moved.n > 0 && moved.n < 6000, "breakpoint update pixel budget");
     std::printf("breakpoint trace, scope and meters=%d pixels\n", moved.n);
+}
+void test() {
+    testInputAndPaint();
+    testAlgorithms();
+    testEnvelopeAndKitControls();
+    testLayoutAndScroll();
+    testVoiceDiagrams();
+    testSlotDiagrams();
+    testKickMapping();
+    testBreakpointUpdates();
     std::puts("input, dirty/full/stride, eight graphs, allocation checks passed; idle=0 pixels");
 }
 void bench() {
