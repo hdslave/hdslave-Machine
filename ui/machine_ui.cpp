@@ -8,6 +8,7 @@ using namespace draw;
 namespace {
 constexpr int listY = 52, rowH = 15, rowsVisible = 8, listW = 196, contextX = 202, contextW = 114;
 constexpr int headW = listW, headH = 35, cardY = 176;
+constexpr int printTopGap = 2, printTileH = printTopGap + art::bandHeight;
 constexpr uint32_t none = 0xffffffffu;
 int boundedCursor(int cursor, const Model &m) {
     return index(cursor, count(m) - 1);
@@ -65,7 +66,7 @@ void machinePrint(Raster &r, int machine) {
         for (int x = 0; x < art::bandWidth; ++x) {
             auto ink = art::banners[machine][y * art::bandWidth + x];
             if (ink)
-                r.dot(markX + x, y, art::inks[ink]);
+                r.dot(markX + x, printTopGap + y, art::inks[ink]);
         }
     char number[8];
     std::snprintf(number, sizeof number, "%02u/%02u", unsigned(machine + 1), unsigned(machineCount));
@@ -73,15 +74,16 @@ void machinePrint(Raster &r, int machine) {
 }
 void meters(Raster &r, const Model &m, const Host &h) {
     r.box(0, 0, r.w, r.h, black);
-    r.text(2, 3, machineId(m) == 8 ? "SLOTS" : "VOICE", muted);
+    const int bottomLevel = r.h - 5;
+    r.text(2, bottomLevel - 6, machineId(m) == 8 ? "SLOTS" : "VOICE", muted);
     if (h.playing)
-        r.box(40, 5, 2, 2, cyan);
+        r.box(40, bottomLevel - 4, 2, 2, cyan);
     for (int k = 0; k < 8; ++k) {
         int x = 48 + k * 8, level = position(m.voices[k], 4);
         for (int i = 0; i < 4; ++i)
-            r.box(x, 9 - i * 2, 5, 1, i < level ? cyan : rule);
+            r.box(x, bottomLevel - i * 2, 5, 1, i < level ? cyan : rule);
         if (machineId(m) == 8 && k == slotId(m))
-            r.box(x, 11, 5, 1, paper);
+            r.box(x, bottomLevel + 2, 5, 1, paper);
     }
     r.box(0, r.h - 1, r.w, 1, violet);
 }
@@ -324,7 +326,7 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
     };
     if (full || switched || phase != sweepFrame_ ||
         (machine == 8 && (slot != slotId(previous_) || drum != previous_.kitMachines[slot])))
-        tile(0, 2, headW, headH, [&](Raster &r) {
+        tile(0, placeBarRows, headW, headH, [&](Raster &r) {
             heading(r, machine, slot, drum);
             if (phase < 16) {
                 int edge = headW * phase / 16;
@@ -334,12 +336,12 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
             }
         });
     if (full || switched)
-        tile(contextX, 2, contextW, art::bandHeight, [&](Raster &r) { machinePrint(r, machine); });
+        tile(contextX, placeBarRows, contextW, printTileH, [&](Raster &r) { machinePrint(r, machine); });
     bool meterDirty = full || switched || h.playing != previousHost_.playing || slot != slotId(previous_);
     for (int i = 0; i < 8; ++i)
         meterDirty |= position(m.voices[i], 4) != position(previous_.voices[i], 4);
     if (meterDirty)
-        tile(contextX, 2 + art::bandHeight, contextW, headH - art::bandHeight,
+        tile(contextX, placeBarRows + printTileH, contextW, headH - printTileH,
              [&](Raster &r) { meters(r, m, h); });
     auto group = count(m) ? m.rows[cursor_].group : Group::Machine;
     auto oldGroup = lastCursor_ >= 0 && lastCursor_ < count(previous_) ? previous_.rows[lastCursor_].group
