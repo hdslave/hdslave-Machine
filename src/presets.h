@@ -67,7 +67,7 @@ constexpr PresetValue acidFm[] = {
     { fmADecay, sec (0.15f) }, { fmAEnd, 0.05f }, { fmALevel, 0.7f },
     { fmBDecay, sec (0.08f) }, { fmBEnd, 0.0f }, { fmBLevel, 0.3f },
     { filterFreq, 0.45f }, { filterReso, 0.75f }, { filterEnv, 0.55f }, { filterDecay, sec (0.18f) },
-    { ampRelease, sec (0.05f) }, { ampDrive, 0.35f },
+    { ampRelease, sec (0.05f) }, { ampDrive, 0.35f }, { volume, 0.6310f }, // VOLUME -3 dB
 };
 constexpr PresetValue kick[] = { { machine, bd } };
 constexpr PresetValue longKick[] = { { machine, bd }, { dataB, 0.78f }, { dataC, 0.35f }, { dataE, 0.2f }, { dataF, 0.35f } };
@@ -98,7 +98,7 @@ constexpr PresetValue phaseLead[] = {
 constexpr PresetValue phaseAcid[] = {
     { machine, phase }, { dataA, 0.6f }, { dataB, 0.2f }, { dataC, 0.85f }, { dataD, sec (0.15f) }, { dataE, 0.0f }, { dataF, 0.4f },
     { dataG, 0.3f }, { dataH, 0.1f }, { filterFreq, 0.5f }, { filterReso, 0.7f }, { filterEnv, 0.45f }, { filterDecay, sec (0.2f) },
-    { ampRelease, sec (0.06f) }, { ampDrive, 0.3f },
+    { ampRelease, sec (0.06f) }, { ampDrive, 0.3f }, { volume, 0.6495f }, // VOLUME -2.5 dB
 };
 constexpr PresetValue voxChoir[] = {
     { machine, vox }, { dataB, 0.75f }, { dataD, 2.0f / 7.0f }, { dataE, 0.4f }, { filterFreq, 0.8f }, { ampAttack, sec (0.35f) },
@@ -113,7 +113,7 @@ constexpr PresetValue marimba[] = {
 };
 constexpr PresetValue gong[] = {
     { machine, modal }, { dataA, 0.25f }, { dataB, 0.9f }, { dataC, 0.6f }, { dataD, 0.12f }, { dataE, 0.4f }, { dataF, 0.2f },
-    { dataG, 0.15f }, { dataH, 0.7f },
+    { dataG, 0.15f }, { dataH, 0.7f }, { volume, 0.7204f }, // VOLUME -0.7 dB
 };
 constexpr PresetValue pluckHarp[] = {
     { machine, pluck }, { dataB, sec (2.5f) }, { dataC, 0.7f }, { dataD, 0.5f }, { dataE, 0.15f }, { dataF, 0.05f }, { dataG, 0.2f },
@@ -130,20 +130,21 @@ constexpr PresetValue gendyInsects[] = {
 constexpr PresetValue gendyBuzz[] = {
     { machine, gendy }, { dataA, 3.0f / 13.0f }, { dataB, 0.25f }, { dataC, 0.1f }, { dataD, 0.15f }, { dataE, 1.0f }, { dataF, 0.3f },
     { dataG, 0.7f }, { dataH, 0.5f }, { filterFreq, 0.65f }, { filterReso, 0.35f }, { filterEnv, 0.3f },
+    { volume, 0.7000f }, // VOLUME -1.2 dB
 };
 constexpr PresetValue pulsarRhythm[] = {
     { machine, pulsar }, { dataB, 0.646f }, { dataC, 0.85f }, { dataD, 0.2f }, { dataE, 0.5f }, { dataF, 1.0f }, { dataG, 0.1f },
 };
 constexpr PresetValue pulsarFormant[] = {
     { machine, pulsar }, { dataB, 0.452f }, { dataC, 0.0f }, { dataE, 0.9f }, { ampAttack, sec (0.05f) }, { ampRelease, sec (0.5f) },
-    { lfoDest, 4.0f }, { lfoDepth, 0.2f }, { lfoSpeed, 0.25f }, { lfoWave, 4.0f },
+    { lfoDest, 4.0f }, { lfoDepth, 0.2f }, { lfoSpeed, 0.25f }, { lfoWave, 4.0f }, { volume, 0.6880f }, // VOLUME -1.5 dB
 };
 constexpr PresetValue drawbarOrgan[] = {
     { machine, organ }, { ampRelease, sec (0.05f) }, { lfoDest, 0.0f }, { lfoDepth, 0.015f }, { lfoSpeed, 0.72f }, { lfoWave, 4.0f },
 };
 constexpr PresetValue fullOrgan[] = {
     { machine, organ }, { dataA, 1.0f }, { dataB, 0.75f }, { dataC, 1.0f }, { dataD, 1.0f }, { dataE, 0.75f }, { dataF, 1.0f },
-    { dataG, 0.5f }, { dataH, 0.75f }, { ampDrive, 0.25f }, { ampRelease, sec (0.05f) },
+    { dataG, 0.5f }, { dataH, 0.75f }, { ampDrive, 0.25f }, { ampRelease, sec (0.05f) }, { volume, 0.6684f }, // VOLUME -2 dB
 };
 constexpr PresetValue resonatorKick[] = { { machine, Kind::kick } };
 constexpr PresetValue boomKick[] = {

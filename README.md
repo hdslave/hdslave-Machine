@@ -18,10 +18,12 @@ host, or in stock Melodee, it plays through the host's ordinary parameter pages.
 
 ## Machines
 
-MACHINE picks one. Data A–H (and for KICK also I and J) then mean what that machine says. Going to KIT and back
-to the machine you left keeps its Data. A host's reset to default sets a Data knob to FM TONE's default, whatever
-the machine; CLAP lets a plug-in change its defaults only while it is off. A new machine sets its Data to its own defaults (a good
-sound of it), and the host is told. A saved project or a preset keeps the Data it had.
+MACHINE picks one. Data A–H (and for KICK also I and J) then mean what that machine says. A new machine sets its
+Data to its own defaults (a good sound of it), and the host is told. A saved project or a preset keeps the Data it had.
+
+Going to KIT and back to the machine you left keeps its Data. A saved project remembers that machine; after a preset,
+leaving KIT starts any machine from its defaults. A host's reset to default sets a Data knob to FM TONE's default,
+whatever the machine: CLAP lets a plug-in change its defaults only while it is off.
 
 | Machine | A | B | C | D | E | F | G | H |
 |---|---|---|---|---|---|---|---|---|
@@ -84,11 +86,13 @@ KICK's Data I is TONE and its Data J is ACCENT.
 - **VOX:** each period starts PULSES sin² pulses at a formant, each softer by P DECAY, then silence. Two of them,
   VOWEL's formants (A, E, I, O, U and between), make a vowel. SHIFT moves the formants and F ENV sweeps them.
 - **MODAL:** twelve resonating modes. Their ratios come from MATERIAL: a string's harmonics, a bar's, a drum skin's,
-  a bell's. They're struck by a mallet (MALLET hard to soft) and NOISE. BRIGHT tilts them, DAMP shortens them,
-  POSITION is the strike point, and SCATTER pulls the modes off their ratios.
+  a bell's. They're struck by a mallet (MALLET soft to hard) and NOISE. BRIGHT tilts them, DAMP shortens them,
+  POSITION is the strike point, and SCATTER pulls the modes off their ratios. Where BRIGHT and POSITION add up to a
+  louder strike than the default's, it's scaled back to it; NOISE eases off toward its top.
 - **PLUCK:** Karplus-Strong. A burst of noise (PICK its brightness, POSITION a comb) goes round a damping filter
   (BRIGHT) and a loss (DECAY). STIFF stretches the overtones, BODY rings a wooden box, and TENSION starts the note
-  sharp or flat and lets it settle.
+  sharp or flat and lets it settle. The line allows for what BRIGHT's filter and STIFF delay at the note's own pitch,
+  so it stays in tune at any setting.
 - **GENDY:** the waveform is POINTS breakpoints. Every few periods (RATE), each point's level and time take a random
   step (AMP WALK, TIMEWALK; WILD gives the steps heavy tails; BOUNDS are the walls they bounce off). LOCK holds the
   pitch at the note, and SMOOTH curves the lines.
@@ -130,6 +134,12 @@ KICK's Data I is TONE and its Data J is ACCENT.
   - The mod wheel deepens the LFO; pitch bend is ±2 semitones.
   - CC 123 (all notes off) releases every note; CC 120 (all sound off) stops them at once.
 - **Gain and pan** glide across each 32-frame step, so LFO→AMP and level or pan automation don't step.
+- **The filter:**
+  - A voice ends when its machine is done and the filter has rung out, so a resonant filter is never cut off.
+  - A voice's first step takes the filter envelope from its first sample, so a hit sounds the same wherever it lands.
+  - Going into or out of bypass (fully open and flat) crossfades across a 32-frame step.
+- **TERRAIN and PHASE** start mid-wave, so they fade in over 1 ms rather than click. VOX and PULSAR (unipolar
+  pulses) settle their offset over the first 10 ms or so, as an AC-coupled output does.
 - **A voice choked by a new machine** plays out its 3 ms fade with its own sound, never the new machine's.
 
 ## Presets
@@ -138,6 +148,10 @@ Default, FM Keys, FM Bell, FM Bass, FM Pad, Acid FM, Kick, Long Kick, Snare, Cla
 Cowbell, FM Tom, Ground Sine, Kit, Terrain Drone, Terrain Bass, Phase Lead, Phase Acid, Vox Choir, Vox Knock, Marimba,
 Gong, Pluck Harp, Pluck Bass, Gendy Insects, Gendy Buzz, Pulsar Rhythm, Pulsar Formant, Drawbar Organ, Full Organ,
 Resonator Kick, Boom Kick, Kit Explorer (KICK, the new machines and the drums in one kit).
+
+**Levels:** a drum hit peaks under full scale. A three-note chord peaks at up to about +2.5 dBFS, like the default FM
+patch; Melodee's centre pan takes 3 dB off a track. Gong, Acid FM, Phase Acid, Full Organ, Pulsar Formant and Gendy
+Buzz set VOLUME below 0 dB to stay there.
 
 ## The screen
 
@@ -194,28 +208,32 @@ meant to keep the sound must leave them as they are; `make fingerprint-update` r
 
 | Patch | Instructions a block | Share of one core |
 |---|---|---|
-| Eight held FM voices with everything busy | 214,000 | about 4.5% |
-| An FM chord | 104,000 | about 2.2% |
-| A busy KIT groove | 40,000 | about 0.8% |
+| Eight held FM voices with everything busy | 209,000 | about 4.4% |
+| An FM chord each second, its notes ringing on | 139,000 | about 2.9% |
+| A busy KIT groove | 47,000 | about 1.0% |
 | Silence | 3,000 | about 0.06% |
 
-With eight voices each (the filter on), the second barrage runs from 2.6% to 3.7% of a core:
+With eight voices each (the filter on), the second barrage runs from 2.4% to 3.6% of a core:
 
 | Machine | Share of one core |
 |---|---|
-| GENDY | 2.6% |
-| PULSAR | 2.7% |
-| TERRAIN | 3.0% |
+| GENDY | 2.4% |
+| PULSAR | 2.6% |
+| TERRAIN | 2.9% |
 | ORGAN | 3.0% |
-| PLUCK | 3.1% |
-| VOX | 3.2% |
-| PHASE | 3.4% |
-| MODAL | 3.7% |
+| VOX | 3.1% |
+| PLUCK | 3.2% |
+| PHASE | 3.3% |
+| MODAL | 3.6% |
 
 KICK hitting every sixteenth takes 0.55%.
 
-Data values, the shared section's coefficients and FM TONE's steps are worked out again only when what they come
-from changes.
+The page costs the audio thread nothing but a 128-sample copy a block. On the screen thread, a full repaint is about
+390,000 instructions (TERRAIN's surface about 480,000), so 0.2–0.3 ms on the MPC. The plug-in asks for at most 30
+paints a second, and only while something moves; most of them redraw just the meters and the scope.
+
+Data values, the shared section's coefficients, FM TONE's steps and MODAL's modes (only their tuning follows a pitch
+LFO) are worked out again only when what they come from changes.
 
 ## Install
 

@@ -569,7 +569,11 @@ inline void formatParam (const Param& p, float v, uint8_t machineKind, uint8_t s
         {
             const float g = volumeGain (v);
             if (g <= 0.0f) std::snprintf (text, size, "-INF");
-            else std::snprintf (text, size, "%+.1fdB", 20.0f * std::log10 (g));
+            else
+            {
+                const float db = 20.0f * std::log10 (g);
+                std::snprintf (text, size, db > -99.95f ? "%+.1fdB" : "%+.0fdB", db); // seven characters at most
+            }
             break;
         }
     }
@@ -606,7 +610,7 @@ inline bool parseData (const DataSpec& d, const char* text, float& x)
     }
     char* end = nullptr;
     double v = std::strtod (text, &end);
-    if (end == text) return false;
+    if (end == text || ! std::isfinite (v)) return false; // "nan" and "inf" are numbers to strtod, not to a knob
     while (*end == ' ') ++end;
     if (*end == 'k' || *end == 'K') v *= 1000.0;
     if (end[0] == 'm' && end[1] == 's') v /= 1000.0;
@@ -651,7 +655,7 @@ inline bool parseParam (const Param& p, const char* text, float& v)
     }
     char* end = nullptr;
     const double x = std::strtod (text, &end);
-    if (end == text) return false;
+    if (end == text || ! std::isfinite (x)) return false; // "nan" and "inf" are numbers to strtod, not to a knob
     while (*end == ' ') ++end;
     switch (p.text)
     {

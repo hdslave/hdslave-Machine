@@ -328,6 +328,16 @@ void parameters()
     CHECK (m.params->text_to_value (m.plugin, m.id ("LFO Wave"), "S+H", &v) && v == 3.0);
     CHECK (m.params->text_to_value (m.plugin, m.id ("Machine"), "kit", &v) && v == 8.0);
     CHECK (m.params->text_to_value (m.plugin, m.id ("Amp Release"), "250ms", &v) && std::fabs (v - m.value ("Amp Release")) < 1e-3);
+    // Not a number, not a knob: the Data's, KIT's and the shared section's texts refuse them.
+    for (const char* name : { "Data A", "Data E", "Kit 1 Data A", "Kit 3 Level", "Filter Freq", "Amp Decay", "Volume" })
+        for (const char* t : { "nan", "NaN", "inf", "-inf" })
+        {
+            const bool word = (std::string (name) == "Amp Decay" && std::string (t) == "inf") || (std::string (name) == "Volume" && std::string (t) == "-inf");
+            if (! word) CHECK (! m.params->text_to_value (m.plugin, m.id (name), t, &v)); // (INF and -INF are those two's own words)
+        }
+    // VOLUME's quietest steps still fit seven characters.
+    CHECK (m.text ("Volume", 0.003) == "-96dB" || m.text ("Volume", 0.003).size() <= 7);
+    CHECK (m.text ("Volume", 0.0001).size() <= 7 && m.text ("Volume", 0.0001) != "-INF");
     // Every other parameter's text read back gives the same text (Volume's dB, the LFO's Hz, ENV's octaves...).
     m.setup ({ { "Machine", 0 } });
     for (uint32_t i = 0; i < count; ++i)
@@ -975,6 +985,250 @@ void stateAndPresets()
     CHECK (m.loadPreset ("snare") && m.value ("Machine") == 2 && m.text ("Data A") == "171Hz"); // SD's TUNE
 }
 
+// KIT keeps Data A-J for the machine it was entered from, and only for it: through a preset (nobody's), a state (kept
+// with it), and a state from before it was kept.
+void kitAndStates()
+{
+    struct Bytes { std::vector<uint8_t> data; size_t at = 0; };
+    auto save = [] (Instance& m) {
+        Bytes b;
+        clap_ostream os { &b, [] (const clap_ostream* s, const void* d, uint64_t n) -> int64_t {
+            auto* v = &static_cast<Bytes*> (s->ctx)->data;
+            v->insert (v->end(), (const uint8_t*) d, (const uint8_t*) d + n);
+            return (int64_t) n;
+        } };
+        CHECK (m.state->save (m.plugin, &os));
+        return b.data;
+    };
+    auto load = [] (Instance& m, const std::vector<uint8_t>& data) {
+        Bytes b { data };
+        clap_istream is { &b, [] (const clap_istream* s, void* d, uint64_t n) -> int64_t {
+            auto* r = static_cast<Bytes*> (s->ctx);
+            const uint64_t take = std::min<uint64_t> (r->data.size() - r->at, n);
+            std::memcpy (d, r->data.data() + r->at, take);
+            r->at += take;
+            return (int64_t) take;
+        } };
+        CHECK (m.state->load (m.plugin, &is));
+    };
+    const char* const data[] = { "Data A", "Data B", "Data C", "Data D", "Data E", "Data F", "Data G", "Data H", "Data I", "Data J" };
+    Instance fm, bd;
+    bd.setup ({ { "Machine", 1 } });
+    auto same = [&] (Instance& m, Instance& as) {
+        for (const char* d : data) CHECK (m.value (d) == as.value (d));
+    };
+
+    // A KIT preset, then FM TONE or BD: their own defaults, not the preset's zeros.
+    for (const char* key : { "kit", "kit-explorer" })
+    {
+        Instance a, b;
+        CHECK (a.loadPreset (key) && b.loadPreset (key));
+        a.setup ({ { "Machine", 0 } });
+        b.setup ({ { "Machine", 1 } });
+        same (a, fm);
+        same (b, bd);
+    }
+
+    // BD tuned, then KIT, saved: back to BD it is tuned still; to FM TONE, FM TONE's defaults.
+    Instance tuned;
+    tuned.setup ({ { "Machine", 1 } });
+    tuned.setup ({ { "Data A", 0.9 } });
+    tuned.setup ({ { "Machine", 8 } });
+    const std::vector<uint8_t> saved = save (tuned);
+    {
+        Instance back;
+        load (back, saved);
+        back.setup ({ { "Machine", 1 } });
+        CHECK (std::fabs (back.value ("Data A") - 0.9) < 1e-6);
+    }
+    {
+        Instance other;
+        load (other, saved);
+        other.setup ({ { "Machine", 0 } });
+        same (other, fm);
+    }
+    // Saved again after a load: the machine is kept through it.
+    {
+        Instance back;
+        load (back, saved);
+        const std::vector<uint8_t> again = save (back);
+        CHECK (again == saved);
+    }
+    // A state from before the machine was kept (its last pair gone, the count one less): leaving KIT resets.
+    {
+        std::vector<uint8_t> old (saved.begin(), saved.end() - 8);
+        uint32_t n = 0;
+        std::memcpy (&n, old.data() + 8, 4);
+        --n;
+        std::memcpy (old.data() + 8, &n, 4);
+        Instance back;
+        load (back, old);
+        CHECK (back.value ("Machine") == 8);
+        back.setup ({ { "Machine", 1 } });
+        same (back, bd);
+    }
+    // A preset loaded over a KIT entered from BD: the machine is forgotten.
+    {
+        Instance m;
+        m.setup ({ { "Machine", 1 } });
+        m.setup ({ { "Machine", 8 } });
+        CHECK (m.loadPreset ("kit"));
+        m.setup ({ { "Machine", 1 } });
+        same (m, bd);
+    }
+}
+
+// The engine review's findings, held: a resonant filter rings out before a voice ends; a hit sounds the same wherever
+// it lands on the 32-frame grid; GENDY, TERRAIN and PHASE start without a thump or a click; the filter goes into and
+// out of bypass without a step; PLUCK is in tune at low BRIGHT and high STIFF; MODAL's loudest corners stay near full
+// scale, and its NOISE about as loud at any rate.
+void engineReview()
+{
+    std::vector<float> l, r;
+    auto knob = [] (Instance& m, const char* name, const char* text) {
+        double v = 0.0;
+        CHECK (m.params->text_to_value (m.plugin, m.id (name), text, &v));
+        return v;
+    };
+    auto rms = [] (const std::vector<float>& x) {
+        double s = 0.0;
+        for (float f : x) s += (double) f * f;
+        return std::sqrt (s / (double) x.size());
+    };
+
+    // The end of a hit through a filter at RESO 1: its last sample as quiet as an envelope's end, not a cut.
+    for (int machine : { 1, 2, 6, 7, 17 }) // BD, SD, EFM DRUM, GND, KICK
+        for (int type : { 0, 1 })           // LP, HP
+        {
+            Instance m;
+            m.setup ({ { "Machine", machine } });
+            m.setup ({ { "Filter Reso", 1.0 }, { "Filter Type", type }, { "Filter Freq", 0.15 } });
+            m.render (4.0, { { 0, At::on, 60, 1.0 } }, l, r);
+            size_t end = l.size();
+            while (end > 0 && l[end - 1] == 0.0f) --end;
+            CHECK (end > 0 && end < l.size()); // it sounded, and it ended
+            if (end > 0 && std::fabs (l[end - 1]) > 1e-3f)
+                std::printf ("FAIL machine %d filter type %d: its voice stops on %.4f\n", machine, type, l[end - 1]), ++failures;
+        }
+
+    // A hit's first millisecond with FILTER ENV up and ATTACK 0, wherever on the grid it lands.
+    for (int machine : { 2, 4, 13 }) // SD, HH, PLUCK
+    {
+        double lo = 1e9, hi = 0.0;
+        for (uint64_t offset : { 0, 8, 16, 31 })
+        {
+            Instance m;
+            m.setup ({ { "Machine", machine } });
+            m.setup ({ { "Filter Freq", 0.3 }, { "Filter Env", 1.0 }, { "Filter Decay", knob (m, "Filter Decay", "60ms") } });
+            const uint64_t at = 3200 + offset;
+            m.render (0.2, { { at, At::on, 60, 1.0 } }, l, r);
+            double e = 0.0;
+            for (size_t i = at; i < at + 48; ++i) e += (double) l[i] * l[i];
+            lo = std::min (lo, e), hi = std::max (hi, e);
+        }
+        if (10.0 * std::log10 (hi / lo) > 1.5) std::printf ("FAIL machine %d: its onset differs %.1f dB across the grid\n", machine, 10.0 * std::log10 (hi / lo)), ++failures;
+    }
+
+    // GENDY at its default POINTS starts as a tone with no offset (no thump), its walks off.
+    {
+        Instance m;
+        m.setup ({ { "Machine", 14 } });
+        m.setup ({ { "Data B", 0.0 }, { "Data C", 0.0 } });
+        m.render (0.1, { { 0, At::on, 48, 1.0 } }, l, r);
+        double s = 0.0;
+        for (size_t i = 0; i < 384; ++i) s += l[i];
+        CHECK (std::fabs (s / 384.0) < 0.06);
+    }
+    // TERRAIN and PHASE start mid-wave: faded in, their first sample near silence.
+    for (int machine : { 9, 10 })
+    {
+        Instance m;
+        m.setup ({ { "Machine", machine } });
+        m.render (0.1, { { 100, At::on, 60, 1.0 } }, l, r);
+        CHECK (std::fabs (l[100]) < 0.05 * peak (l));
+    }
+
+    // A tone with the LFO taking FREQ across the bypass line and back, against the same never bypassed (RESO just
+    // above it): their difference moves no more than the tone does between samples, no step.
+    auto tone = [&] (double reso, std::vector<float>& out) {
+        Instance m;
+        m.setup ({ { "Machine", 0 } });
+        m.setup ({ { "FM A Level", 0.0 }, { "FM B Level", 0.0 }, { "Data H", 0.0 }, { "Data E", 0.5 }, { "Data F", 0.0 }, { "Filter Freq", 1.0 },
+                   { "Filter Reso", reso }, { "LFO Dest", 1 }, { "LFO Depth", 0.03 }, { "LFO Speed", 0.4 }, { "LFO Wave", 4 } });
+        std::vector<float> rr;
+        m.render (2.0, { { 0, At::on, 96, 1.0 } }, out, rr);
+    };
+    {
+        std::vector<float> a, b;
+        tone (0.0101, a);
+        tone (0.0, b);
+        double step = 0.0;
+        for (size_t i = 4801; i < a.size(); ++i) step = std::max (step, (double) std::fabs ((b[i] - a[i]) - (b[i - 1] - a[i - 1])));
+        if (step > 0.02) std::printf ("FAIL the filter's bypass steps %.4f\n", step), ++failures;
+    }
+
+    // PLUCK's pitch, by autocorrelation (its period, interpolated), against the note.
+    auto cents = [&] (const std::vector<float>& x, size_t from, size_t len, double hz) {
+        const double expect = 48000.0 / hz;
+        const int lo = (int) (expect * 0.7), hi = (int) (expect * 1.3) + 2;
+        std::vector<double> c ((size_t) hi + 2, 0.0);
+        for (int lag = lo - 1; lag <= hi + 1; ++lag)
+        {
+            double s = 0.0, e1 = 0.0, e2 = 0.0;
+            for (size_t i = from; i < from + len; ++i)
+                s += (double) x[i] * x[i + (size_t) lag], e1 += (double) x[i] * x[i], e2 += (double) x[i + (size_t) lag] * x[i + (size_t) lag];
+            c[(size_t) lag] = s / std::sqrt (e1 * e2 + 1e-30);
+        }
+        int best = lo;
+        for (int lag = lo; lag <= hi; ++lag)
+            if (c[(size_t) lag] > c[(size_t) best]) best = lag;
+        const double a = c[(size_t) best - 1], b = c[(size_t) best], d = c[(size_t) best + 1];
+        const double period = best + 0.5 * (a - d) / (a - 2.0 * b + d);
+        return 1200.0 * std::log2 ((48000.0 / period) / hz);
+    };
+    struct Pluck { double bright, stiff; int key; bool late; double within; };
+    for (const Pluck& c : { Pluck { 0.0, 0.0, 84, false, 20.0 }, Pluck { 0.2, 0.0, 96, false, 10.0 }, Pluck { 0.6, 1.0, 96, true, 8.0 },
+                            Pluck { 0.6, 0.0, 96, true, 5.0 } })
+    {
+        Instance m;
+        m.setup ({ { "Machine", 13 } });
+        m.setup ({ { "Data B", 1.0 }, { "Data C", c.bright }, { "Data F", c.stiff }, { "Data G", 0.0 }, { "Data E", 0.0 } });
+        m.render (0.4, { { 0, At::on, c.key, 1.0 } }, l, r);
+        const double hz = 440.0 * std::pow (2.0, (c.key - 69) / 12.0);
+        const double off = c.late ? cents (l, 7200, 4800, hz) : cents (l, 288, (size_t) std::max (4.0 * 48000.0 / hz, 480.0), hz);
+        if (std::fabs (off) > c.within)
+            std::printf ("FAIL PLUCK BRIGHT %.1f STIFF %.1f key %d: %+.1f cents\n", c.bright, c.stiff, c.key, off), ++failures;
+    }
+
+    // MODAL: the default as it was; its loudest corners (BRIGHT up, NOISE up, DAMP off) near full scale, not 30
+    // times over; NOISE about as loud at 192 kHz as at 48.
+    {
+        Instance m;
+        m.setup ({ { "Machine", 12 } });
+        m.render (0.5, { { 0, At::on, 60, 1.0 } }, l, r);
+        CHECK (peak (l) > 0.5 && peak (l) < 0.8);
+    }
+    for (double material : { 0.0, 0.33, 0.66, 1.0 })
+        for (int key : { 36, 60 })
+        {
+            Instance m;
+            m.setup ({ { "Machine", 12 } });
+            m.setup ({ { "Data B", material }, { "Data C", 1.0 }, { "Data D", 0.0 }, { "Data E", 0.0 }, { "Data F", 0.0 }, { "Data G", 1.0 } });
+            m.render (0.5, { { 0, At::on, key, 1.0 } }, l, r);
+            if (peak (l) > 3.0) std::printf ("FAIL MODAL MATERIAL %.2f key %d at its loudest corner: peak %.2f\n", material, key, peak (l)), ++failures;
+        }
+    double noiseAt[2] {};
+    for (int k = 0; k < 2; ++k)
+    {
+        Instance m (k == 0 ? 48000.0 : 192000.0);
+        m.setup ({ { "Machine", 12 } });
+        m.setup ({ { "Data G", 1.0 } });
+        m.render (0.5, { { 0, At::on, 60, 1.0 } }, l, r);
+        noiseAt[k] = rms (l);
+    }
+    if (noiseAt[1] > 2.5 * noiseAt[0]) std::printf ("FAIL MODAL NOISE: %.3f at 192 kHz against %.3f at 48\n", noiseAt[1], noiseAt[0]), ++failures;
+}
+
 // The same output whatever the block size, with notes and changes inside blocks.
 void blockSizes()
 {
@@ -1073,6 +1327,8 @@ int main (int argc, char** argv)
     hostCopies();
     engineFindings();
     stateAndPresets();
+    kitAndStates();
+    engineReview();
     blockSizes();
     blockSizesBarrage();
     fuzz();

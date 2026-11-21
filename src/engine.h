@@ -71,6 +71,9 @@ struct Voice
     Patch own;                // what its sound became since (a new machine's Data read as its own would blow up)
     float gainFrom = 0.0f, gainTo = 0.0f, panLFrom = 1.0f, panLTo = 1.0f, panRFrom = 1.0f, panRTo = 1.0f; // per sub-block, ramped
     bool filterBypass = true; // the filter this sub-block: set at the sub-block's start, the same whatever the blocks
+    bool bypassFade = false;  // the sub-block the filter goes into or out of bypass: across it, not a jump
+    float tail = 0.0f;        // the filter's loudest output this sub-block: its ringing outlasts the machine
+    uint32_t fadeIn = 0, fadeInLen = 0; // TERRAIN and PHASE: the samples of their first millisecond's fade still to go
 
     // The shared section's state.
     enum : uint8_t { attack, hold, decay, sustain, release, ended };
@@ -88,14 +91,16 @@ struct Voice
     float dcX = 0.0f, dcY = 0.0f; // a DC blocker's (VOX, PHASE, TERRAIN, GENDY, PULSAR)
     // GENDY: its breakpoints (level, time weight), the segment being drawn.
     float pointAmp[16] {}, pointDur[16] {};
-    int segment = 0, cycles = 0;
+    int segment = 0;
+    uint32_t cycles = 0;
     float segPos = 0.0f, segLen = 1.0f;
     // MODAL: each mode's two last outputs and its coefficients.
     float my1[12] {}, my2[12] {}, mb1[12] {}, mb2[12] {}, mg[12] {};
     float modalFor[9] {}; // what its coefficients were worked out for (pitch, its knobs, released): unchanged, kept
+    float modalRatio[12] {}, modalR[12] {}, modalG[12] {}, modalHz = 0.0f; // the parts that do not move with the pitch
     // PLUCK: where it writes in its line; PULSAR: the pulse count.
     uint32_t write = 0;
-    int pulses = 0;
+    uint32_t pulses = 0;
     uint8_t fmStage[2] {};
     uint32_t fmInc[4] {};         // FM TONE's operators' steps this sub-block
     float fmGx = 1.0f, fmGy = 0.0f; // and MIX's two gains
@@ -122,6 +127,12 @@ public:
         rate = (float) sampleRate;
         invRate = 1.0f / rate;
         dcCoef = 1.0f - 2.0f * dsp::pi * 10.0f / rate;
+        modalNoiseCoef = std::exp (-1.0f / (0.015f * rate));
+        modalNoiseRate = std::sqrt (48000.0f / rate); // white noise into the modes: as loud at any rate as at 48 kHz
+        pluckTensionCoef = std::exp (-1.0f / (0.03f * rate));
+        modalStrikeRef = 0.0f;
+        const float pos = 0.05f + 0.9f * dataSpec (modal, 4).def, tilt = dataSpec (modal, 2).def * 2.0f - 1.5f;
+        for (int i = 0; i < 12; ++i) modalStrikeRef += modalStrike (i, pos, tilt);
         lineLength = 1024;
         while ((float) lineLength < rate / 11.5f) lineLength *= 2;
         lineStore.assign ((size_t) lineLength * voiceCount, 0.0f);
@@ -270,6 +281,8 @@ public:
 
 private:
     float rate = 48000.0f, invRate = 1.0f / 48000.0f, dcCoef = 0.9987f;
+    // MODAL's noise burst's fall and its level against the rate, PLUCK's TENSION glide; the default patch's strike.
+    float modalNoiseCoef = 0.0f, modalNoiseRate = 1.0f, pluckTensionCoef = 0.0f, modalStrikeRef = 1.0f;
     float v[ParamId::end] {};
     Voice voices[voiceCount];
     uint64_t started = 0;
@@ -345,8 +358,6 @@ private:
         voice.amp = 0.0f;
         voice.filterStage = Voice::attack;
         if (kind == fmTone) voice.e[0] = voice.e[1] = 0.0f, voice.fmStage[0] = voice.fmStage[1] = 0;
-        if (kind == gendy) // a sine-like shape to start from, so the first cycles are a tone
-            for (int i = 0; i < 16; ++i) voice.pointAmp[i] = 0.7f * dsp::sine ((uint32_t) (i * (dsp::cycle / 16.0f))), voice.pointDur[i] = 1.0f;
         if (kind == pulsar) voice.st[0] = 0.0f; // the first pulse at once
         if (kind == pluck) voice.write = 0, voice.st[0] = -1.0f; // its line is filled on its first sub-block
         if (kind == cp) voice.burst = 1, voice.nextBurst = 0, voice.e[1] = 0.0f;
@@ -356,6 +367,17 @@ private:
         if (patch.kind != kind || slot >= 0)
             fillPatch (patch, kind, slot, dataDestNow, dataOffsetNow);
         if (slot >= 0) fillSlotMix ((uint32_t) slot);
+        if (kind == gendy) // a sine over its POINTS to start from, so the first cycles are a tone with no offset
+        {
+            const int points = std::min (16, std::max (3, (int) patch.v[0]));
+            for (int i = 0; i < 16; ++i)
+            {
+                voice.pointAmp[i] = i < points ? 0.7f * dsp::sine ((uint32_t) ((float) i * (dsp::cycle / (float) points))) : 0.0f;
+                voice.pointDur[i] = 1.0f;
+            }
+        }
+        if (kind == terrain || kind == phase) // they start mid-wave: a millisecond's fade in, not a click
+            voice.fadeIn = voice.fadeInLen = std::max<uint32_t> (1, (uint32_t) (0.001f * rate));
         if (kind == kick)
         {
             // ACCENT: how far the velocity reaches (none: every hit the same), and its push into DRIVE.
@@ -508,16 +530,23 @@ private:
             case kick: machineDone = renderKick (voice, patch, buf, n); break;
             default: renderOrgan (voice, patch, buf, n); break;
         }
+        for (uint32_t i = 0; i < n && voice.fadeIn > 0; ++i, --voice.fadeIn)
+            buf[i] *= (float) (voice.fadeInLen - voice.fadeIn + 1) / (float) voice.fadeInLen;
 
         // The filter, its cutoff set from the envelope where this sub-block starts (or where the voice did).
         if (boundary || voice.fresh)
         {
-            const float cutoff = std::exp2 (cutoffOct + envOct * voice.filterEnv);
-            const bool wasBypassed = voice.filterBypass && ! voice.fresh;
+            // A voice's first sub-block takes the envelope where its first sample does (ATTACK 0: open at once), so a
+            // hit sounds the same wherever it lands on the grid.
+            const float env = voice.fresh ? std::min (1.0f, voice.filterEnv + filterAttackStep) : voice.filterEnv;
+            const float cutoff = std::exp2 (cutoffOct + envOct * env);
+            const bool wasBypassed = voice.filterBypass && ! voice.fresh, wasFiltered = ! voice.filterBypass && ! voice.fresh;
             // Fully open (at the top of hearing, whatever the rate) and flat: no filter at all.
             voice.filterBypass = filterKind == 0 && cutoff >= std::min (0.42f * rate, 19500.0f) && reso < 0.01f;
             if (! voice.filterBypass) voice.filter.set (cutoff, reso, rate);
             if (wasBypassed && ! voice.filterBypass) voice.prime = true;
+            voice.bypassFade = (wasFiltered && voice.filterBypass) || (wasBypassed && ! voice.filterBypass);
+            voice.tail = 0.0f;
             // The gain and pan this sub-block ends on, ramped to from where the last one ended (a voice starting
             // mid-sub-block starts on them).
             const float gain = voice.velocity * volumeNow * (voice.slot >= 0 ? patch.level : 1.0f);
@@ -527,91 +556,120 @@ private:
             voice.gainTo = gain, voice.panLTo = panL, voice.panRTo = panR;
             voice.fresh = false;
         }
-        const bool bypass = voice.filterBypass;
+        const bool bypass = voice.filterBypass, fading = voice.bypassFade;
         const bool ramping = voice.gainFrom != voice.gainTo || voice.panLFrom != voice.panLTo || voice.panRFrom != voice.panRTo;
         const float gainStep = (voice.gainTo - voice.gainFrom) * (1.0f / (float) sub);
         const float panLStep = (voice.panLTo - voice.panLFrom) * (1.0f / (float) sub), panRStep = (voice.panRTo - voice.panRFrom) * (1.0f / (float) sub);
         float gain = voice.gainTo, panL = voice.panLTo, panR = voice.panRTo;
         float peak = 0.0f;
+        // The loop's state and coefficients in locals: the stores to left/right could otherwise alias them, and
+        // every one would be loaded and stored again each sample.
+        float filterEnvL = voice.filterEnv, ampL = voice.amp, chokeL = voice.choke;
+        uint8_t filterStageL = voice.filterStage, ampStageL = voice.ampStage;
+        uint32_t holdLeftL = voice.holdLeft;
+        bool primeL = voice.prime;
+        dsp::Svf f = voice.filter;
+        float tailL = voice.tail;
+        const bool choking = voice.choking;
+        const float chokeStep = voice.chokeStep, gainFrom = voice.gainFrom, panLFrom = voice.panLFrom, panRFrom = voice.panRFrom;
+        const float fAtk = filterAttackStep, fDec = filterDecayCoef, aAtk = ampAttackStep, aDec = ampDecayCoef, aRel = ampReleaseCoef;
+        const float dGain = driveGain, dMakeup = driveMakeup;
+        const uint32_t holdFrames = ampHoldFrames;
+        const bool inf = ampInf, drv = driving;
+        const uint8_t fKind = filterKind;
         for (uint32_t i = 0; i < n; ++i)
         {
             // The filter envelope: attack, then decay.
-            if (voice.filterStage == Voice::attack)
+            if (filterStageL == Voice::attack)
             {
-                voice.filterEnv += filterAttackStep;
-                if (voice.filterEnv >= 1.0f) voice.filterEnv = 1.0f, voice.filterStage = Voice::decay;
+                filterEnvL += fAtk;
+                if (filterEnvL >= 1.0f) filterEnvL = 1.0f, filterStageL = Voice::decay;
             }
             else
-                voice.filterEnv *= filterDecayCoef;
+                filterEnvL *= fDec;
 
             float x = buf[i];
-            if (voice.prime) // back from bypass: the filter starts where the signal is
+            if (primeL) // back from bypass: the filter starts where the signal is
             {
-                voice.filter.ic1 = 0.0f;
-                voice.filter.ic2 = x;
-                voice.prime = false;
+                f.ic1 = 0.0f;
+                f.ic2 = x;
+                primeL = false;
             }
             if (ramping)
             {
                 const float t = (float) (at + i + 1);
-                gain = voice.gainFrom + gainStep * t;
-                panL = voice.panLFrom + panLStep * t;
-                panR = voice.panRFrom + panRStep * t;
+                gain = gainFrom + gainStep * t;
+                panL = panLFrom + panLStep * t;
+                panR = panRFrom + panRStep * t;
             }
-            if (! bypass)
+            if (! bypass || fading)
             {
                 float lo, bp, hi;
-                voice.filter.run (x, lo, bp, hi);
-                x = filterKind == 0 ? lo : filterKind == 1 ? hi : bp;
+                f.run (x, lo, bp, hi);
+                const float filtered = fKind == 0 ? lo : fKind == 1 ? hi : bp;
+                if (fading) // into bypass (filtered to the signal) or out of it (the other way) across the sub-block
+                {
+                    const float t = (float) (at + i + 1) * (1.0f / (float) sub);
+                    x = bypass ? filtered + (x - filtered) * t : x + (filtered - x) * t;
+                }
+                else
+                    x = filtered;
+                if (! bypass) tailL = std::max (tailL, std::fabs (x));
             }
-            if (driving) x = dsp::softClip (x * driveGain) * driveMakeup;
+            if (drv) x = dsp::softClip (x * dGain) * dMakeup;
 
             // The amp envelope.
-            switch (voice.ampStage)
+            switch (ampStageL)
             {
                 case Voice::attack:
-                    voice.amp += ampAttackStep;
-                    if (voice.amp >= 1.0f)
+                    ampL += aAtk;
+                    if (ampL >= 1.0f)
                     {
-                        voice.amp = 1.0f;
-                        voice.ampStage = Voice::hold;
-                        voice.holdLeft = ampHoldFrames;
+                        ampL = 1.0f;
+                        ampStageL = Voice::hold;
+                        holdLeftL = holdFrames;
                     }
                     break;
                 case Voice::hold:
-                    if (voice.holdLeft > 0) --voice.holdLeft;
-                    else voice.ampStage = ampInf ? Voice::sustain : Voice::decay;
+                    if (holdLeftL > 0) --holdLeftL;
+                    else ampStageL = inf ? Voice::sustain : Voice::decay;
                     break;
                 case Voice::decay:
-                    if (ampInf) { voice.ampStage = Voice::sustain; break; }
-                    voice.amp *= ampDecayCoef;
-                    if (voice.amp < silent) voice.ampStage = Voice::ended;
+                    if (inf) { ampStageL = Voice::sustain; break; }
+                    ampL *= aDec;
+                    if (ampL < silent) ampStageL = Voice::ended;
                     break;
                 case Voice::sustain:
-                    if (! ampInf) voice.ampStage = Voice::decay;
+                    if (! inf) ampStageL = Voice::decay;
                     break;
                 case Voice::release:
-                    voice.amp *= ampReleaseCoef;
-                    if (voice.amp < silent) voice.ampStage = Voice::ended;
+                    ampL *= aRel;
+                    if (ampL < silent) ampStageL = Voice::ended;
                     break;
-                default: voice.amp = 0.0f; break;
+                default: ampL = 0.0f; break;
             }
-            float g = voice.amp * gain;
-            if (voice.choking)
+            float g = ampL * gain;
+            if (choking)
             {
-                voice.choke -= voice.chokeStep;
-                if (voice.choke <= 0.0f) voice.choke = 0.0f;
-                g *= voice.choke;
+                chokeL -= chokeStep;
+                if (chokeL <= 0.0f) chokeL = 0.0f;
+                g *= chokeL;
             }
             const float y = x * g;
             peak = std::max (peak, std::fabs (y));
             left[i] += y * panL;
             right[i] += y * panR;
         }
+        voice.filterEnv = filterEnvL, voice.amp = ampL, voice.choke = chokeL;
+        voice.filterStage = filterStageL, voice.ampStage = ampStageL, voice.holdLeft = holdLeftL, voice.prime = primeL;
+        voice.filter = f;
+        voice.tail = tailL;
         voice.meter = std::max (peak, voice.meter * 0.85f);
         // Ended (its machine quiet, its amp closed, or choked away): it stops where the sub-block does, whatever the
         // host's blocks, so the last samples are the same however they are cut.
-        if (subEnd && (machineDone || voice.ampStage == Voice::ended || (voice.choking && voice.choke <= 0.0f))) voice.on = false;
+        // A machine that is done still waits for a resonant filter's ringing to die away.
+        const bool quiet = machineDone && (bypass || voice.tail < silent);
+        if (subEnd && (quiet || voice.ampStage == Voice::ended || (voice.choking && voice.choke <= 0.0f))) voice.on = false;
         if (! std::isfinite (voice.filter.ic1) || ! std::isfinite (voice.filter.ic2)) voice.filter.reset(); // never stuck on NaN
     }
 
@@ -638,7 +696,7 @@ private:
     }
 
     // FM TONE: four sine operators in the algorithm ALGO, the modulators' levels from FM ENV A and B.
-    void renderFm (Voice& voice, const Patch& p, float* out, uint32_t n, bool slow)
+    void renderFm (Voice& voice, const Patch& p, float* __restrict out, uint32_t n, bool slow)
     {
         const Algorithm& alg = algorithms[std::min (7, std::max (0, (int) p.v[0] - 1))];
         if (slow) // the operators' steps and MIX's gains: they change with the sub-block, not the sample
@@ -667,38 +725,47 @@ private:
         const float hA = bit (alg.heard, 1), hB1 = bit (alg.heard, 2), hB2 = bit (alg.heard, 3);
         const bool onlyC = (alg.heard & 0x0e) == 0;
         const float heardScale = 1.0f / std::max (1.0f, hA + hB1 + hB2);
+        // State and coefficients in locals (the stores to out[] could otherwise alias them).
+        float env[2] = { voice.e[0], voice.e[1] };
+        uint8_t stage[2] = { voice.fmStage[0], voice.fmStage[1] };
+        float y1 = voice.y1, y2 = voice.y2;
+        uint32_t ph[4] = { voice.ph[0], voice.ph[1], voice.ph[2], voice.ph[3] };
+        const uint32_t incL[4] = { inc[0], inc[1], inc[2], inc[3] };
+        const float atk[2] = { fmAtk[0], fmAtk[1] }, end[2] = { fmEnd[0], fmEnd[1] }, dec[2] = { fmDec[0], fmDec[1] }, lev[2] = { fmLev[0], fmLev[1] };
         for (uint32_t i = 0; i < n; ++i)
         {
             for (int k = 0; k < 2; ++k) // FM ENV A and B: rise, then fall to END and stay
             {
-                float& env = voice.e[k];
-                if (voice.fmStage[k] == 0)
+                if (stage[k] == 0)
                 {
-                    env += fmAtk[k];
-                    if (env >= 1.0f) env = 1.0f, voice.fmStage[k] = 1;
+                    env[k] += atk[k];
+                    if (env[k] >= 1.0f) env[k] = 1.0f, stage[k] = 1;
                 }
                 else
-                    env = fmEnd[k] + (env - fmEnd[k]) * fmDec[k];
+                    env[k] = end[k] + (env[k] - end[k]) * dec[k];
             }
-            const float iA = voice.e[0] * fmLev[0] * velIndex, iB = voice.e[1] * fmLev[1] * velIndex;
-            const float o3 = op (voice.ph[3] + dsp::turns (feedback * 0.5f * (voice.y1 + voice.y2)), modShape);
-            const float o2 = op (voice.ph[2] + dsp::turns (m2b2 * o3 * iB), modShape);
-            const float o1 = op (voice.ph[1] + dsp::turns ((m1b1 * o2 + m1b2 * o3) * iB), modShape);
-            const float o0 = op (voice.ph[0] + dsp::turns (m0a * o1 * iA + (m0b1 * o2 + m0b2 * o3) * iB), carrierShape);
-            voice.y2 = voice.y1;
-            voice.y1 = o3;
+            const float iA = env[0] * lev[0] * velIndex, iB = env[1] * lev[1] * velIndex;
+            const float o3 = op (ph[3] + dsp::turns (feedback * 0.5f * (y1 + y2)), modShape);
+            const float o2 = op (ph[2] + dsp::turns (m2b2 * o3 * iB), modShape);
+            const float o1 = op (ph[1] + dsp::turns ((m1b1 * o2 + m1b2 * o3) * iB), modShape);
+            const float o0 = op (ph[0] + dsp::turns (m0a * o1 * iA + (m0b1 * o2 + m0b2 * o3) * iB), carrierShape);
+            y2 = y1;
+            y1 = o3;
             const float x = o0;
-            const float y = onlyC ? o1 * voice.e[0] : (hA * o1 * voice.e[0] * fmLev[0] + (hB1 * o2 + hB2 * o3) * voice.e[1] * fmLev[1]) * heardScale
+            const float y = onlyC ? o1 * env[0] : (hA * o1 * env[0] * lev[0] + (hB1 * o2 + hB2 * o3) * env[1] * lev[1]) * heardScale
                                                        * (1.0f / fmIndexTurns);
-            out[i] = 0.45f * (x * gx + y * gy); // a voice at about -7 dB: a chord of three stays under full scale
-            for (int k = 0; k < 4; ++k) voice.ph[k] += inc[k];
+            out[i] = 0.45f * (x * gx + y * gy); // a voice at about -7 dB: a three-note chord peaks near +2.5 dBFS
+            for (int k = 0; k < 4; ++k) ph[k] += incL[k];
         }
+        voice.e[0] = env[0], voice.e[1] = env[1], voice.fmStage[0] = stage[0], voice.fmStage[1] = stage[1];
+        voice.y1 = y1, voice.y2 = y2;
+        for (int k = 0; k < 4; ++k) voice.ph[k] = ph[k];
     }
 
     float driveOf (float x, float drive) const { return drive > 0.0f ? dsp::softClip (x * (1.0f + 8.0f * drive)) / (1.0f + 1.5f * drive) : x; }
 
     // BD: a sine swept down from SWEEP octaves above TUNE, a click, FM (the sine bending itself), noise, drive.
-    bool renderBd (Voice& voice, const Patch& p, float* out, uint32_t n)
+    bool renderBd (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const float f0 = p.v[0] * pitchRatio, sweep = p.v[2];
         const float pc = std::exp (-1.0f / (std::max (0.0005f, p.v[3]) * rate));
@@ -726,7 +793,7 @@ private:
     }
 
     // SD: two partials with a short pitch drop (BODY, over TONE DEC), and high-passed noise (SNAPPY, over NOIS DEC).
-    bool renderSd (Voice& voice, const Patch& p, float* out, uint32_t n)
+    bool renderSd (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const float f0 = p.v[0] * pitchRatio;
         const float tc = dsp::decayCoef (std::max (0.005f, p.v[1]), rate), nc = dsp::decayCoef (std::max (0.005f, p.v[2]), rate);
@@ -754,7 +821,7 @@ private:
     }
 
     // CP: BURSTS of band-passed noise SPREAD apart, the last decaying over DECAY, and ROOM's longer, darker tail.
-    bool renderCp (Voice& voice, const Patch& p, float* out, uint32_t n)
+    bool renderCp (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const int bursts = (int) p.v[0];
         const uint32_t spread = (uint32_t) std::max (1.0f, std::max (0.001f, p.v[1]) * rate);
@@ -788,7 +855,7 @@ private:
 
     // HH: six square waves between harmonic and metallic ratios (METAL), TONE up or down an octave, and noise, high
     // passed at FILTER; closed short, open long.
-    bool renderHh (Voice& voice, const Patch& p, float* out, uint32_t n)
+    bool renderHh (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         static constexpr float metal[6] = { 205.3f, 304.4f, 369.6f, 522.7f, 540.0f, 800.0f };
         static constexpr float plain[6] = { 205.3f, 410.6f, 615.9f, 821.2f, 1026.5f, 1231.8f };
@@ -819,7 +886,7 @@ private:
 
     // CY/CB: a cymbal (six squares, RING their ring-modulated pairs, long, high passed) or a cowbell (two squares
     // through a band pass, RING its sharpness).
-    bool renderCyCb (Voice& voice, const Patch& p, float* out, uint32_t n)
+    bool renderCyCb (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const bool bell = p.v[0] >= 0.5f;
         const float scale = std::exp2 (p.v[1]) * pitchRatio;
@@ -867,7 +934,7 @@ private:
 
     // EFM DRUM: a carrier at PITCH (swept down by SWEEP over P DECAY) modulated by an operator at RATIO, its INDEX
     // falling over I DECAY, the level over A DECAY; NOISE on top.
-    bool renderEfm (Voice& voice, const Patch& p, float* out, uint32_t n)
+    bool renderEfm (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const float f0 = p.v[0] * pitchRatio, ratio = p.v[1], index = p.knob[2] * p.knob[2] * fmIndexTurns, sweep = p.v[6];
         const float pc = std::exp (-1.0f / (std::max (0.0005f, p.v[3]) * rate));
@@ -900,6 +967,8 @@ private:
         return y;
     }
     static float wave (float t) { return dsp::sine (dsp::turns (t)); } // sin (2 pi t)
+    // MODAL: a mode's share of the strike, from where it is struck (a node gives nothing) and BRIGHT's tilt.
+    static float modalStrike (int i, float pos, float tilt) { return std::fabs (wave (0.5f * (float) (i + 1) * pos)) * std::pow ((float) (i + 1), tilt); }
     static constexpr uint32_t quarter = 0x40000000u;
 
     // TERRAIN's surfaces: heights over the plane, -1..1, WARP (k) packing their hills closer.
@@ -922,7 +991,7 @@ private:
 
     // TERRAIN: a point orbits the surface once a period, on an ellipse (WIDTH, HEIGHT) round (X, Y); SPIN turns the
     // ellipse, DRIFT lets its centre wander.
-    void renderTerrain (Voice& voice, const Patch& p, float* out, uint32_t n, bool slow)
+    void renderTerrain (Voice& voice, const Patch& p, float* __restrict out, uint32_t n, bool slow)
     {
         if (slow)
         {
@@ -955,7 +1024,7 @@ private:
         const float bent = x < d ? v * x * invD : v + (1.0f - v) * (x - d) * invRest;
         return -dsp::sine (dsp::turns (bent) + quarter);
     }
-    void renderPhase (Voice& voice, const Patch& p, float* out, uint32_t n)
+    void renderPhase (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const float d = 0.02f + 0.96f * p.knob[0], invD = 1.0f / d, invRest = 1.0f / (1.0f - d);
         const float d2 = 1.0f - d, invD2 = 1.0f / d2, invRest2 = 1.0f / (1.0f - d2);
@@ -967,6 +1036,7 @@ private:
         const uint32_t hold = 1 + (uint32_t) (p.knob[7] * p.knob[7] * 31.0f);
         const float foldGain = 0.25f * (1.0f + 5.0f * fold);
         float& env = voice.e[0];
+        uint32_t held = voice.t % hold; // GRIT's count, kept as t % hold
         for (uint32_t i = 0; i < n; ++i)
         {
             const float v = std::max (0.0f, std::min (10.0f, p.v[1] + venv * env));
@@ -974,7 +1044,9 @@ private:
             if (twin > 0.0f) y = (1.0f - 0.5f * twin) * y + 0.5f * twin * vps (voice.ph[1], d2, invD2, invRest2, v);
             y += sub * dsp::sine (voice.ph[2]);
             if (fold > 0.0f) y = wave (foldGain * y);
-            if (voice.t++ % hold == 0) voice.st[0] = y;
+            if (held == 0) voice.st[0] = y;
+            ++voice.t;
+            if (++held == hold) held = 0;
             out[i] = 0.4f * dcBlock (voice, voice.st[0]);
             voice.ph[0] += inc;
             voice.ph[1] += incTwin;
@@ -985,7 +1057,7 @@ private:
 
     // ORGAN: eight drawbars, 3 dB a step, all from one phase at the 16' (so they stay locked, as tonewheels on one
     // shaft), and a key click.
-    void renderOrgan (Voice& voice, const Patch& p, float* out, uint32_t n)
+    void renderOrgan (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         static constexpr uint32_t multiple[8] = { 1, 3, 2, 4, 6, 8, 10, 12 }; // of the 16', half the note
         const float base = voice.noteHz * pitchRatio * 0.5f;
@@ -1027,7 +1099,7 @@ private:
         if (x < lo) x = 2.0f * lo - x;
         return std::max (lo, std::min (hi, x));
     }
-    void renderGendy (Voice& voice, const Patch& p, float* out, uint32_t n)
+    void renderGendy (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const int points = std::min (16, std::max (3, (int) p.v[0]));
         const float ampWalk = p.knob[1] * 0.3f, timeWalk = p.knob[2] * 0.5f, wild = p.knob[3], lock = p.knob[4];
@@ -1050,19 +1122,22 @@ private:
         };
         if (voice.segment >= points) voice.segment = 0;
         if (voice.segLen <= 1.0f && voice.segPos == 0.0f) voice.segLen = segmentLength (voice.segment);
+        float segStep = 1.0f / voice.segLen;
         for (uint32_t i = 0; i < n; ++i)
         {
+            if (voice.segPos >= 1.0f)
+            {
             while (voice.segPos >= 1.0f)
             {
                 voice.segPos -= 1.0f;
                 voice.segment = (voice.segment + 1) % points;
-                if (voice.segment == 0 && ++voice.cycles % every == 0)
+                if (voice.segment == 0 && ++voice.cycles % (uint32_t) every == 0)
                     for (int j = 0; j < points; ++j)
                     {
                         voice.pointAmp[j] = bounce (voice.pointAmp[j] + ampWalk * walk (voice.noise, wild), -bound, bound);
                         voice.pointDur[j] = bounce (voice.pointDur[j] + timeWalk * walk (voice.noise, wild), 0.1f, 1.0f);
                     }
-                if (voice.segment == 0 && voice.cycles % every == 0) voice.st[1] = 0.0f; // walked: the total again
+                if (voice.segment == 0 && voice.cycles % (uint32_t) every == 0) voice.st[1] = 0.0f; // walked: the total again
                 if ((int) voice.st[1] != points)
                 {
                     float total = 0.0f;
@@ -1071,12 +1146,14 @@ private:
                 }
                 voice.segLen = segmentLength (voice.segment);
             }
+            segStep = 1.0f / voice.segLen;
+            }
             const float a = voice.pointAmp[voice.segment], b = voice.pointAmp[(voice.segment + 1) % points];
             const float t = voice.segPos;
             const float curved = 0.5f - 0.5f * dsp::sine (dsp::turns (0.5f * t) + quarter);
             const float y = a + (b - a) * (t + (curved - t) * smooth);
             out[i] = 0.75f * dcBlock (voice, y);
-            voice.segPos += 1.0f / voice.segLen;
+            voice.segPos += segStep;
         }
     }
 
@@ -1092,7 +1169,7 @@ private:
 
     // VOX: VOSIM. Each period starts PULSES sin^2 pulses at a formant, each P DECAY softer, then silence; two such
     // (VOWEL's formants, moved by SHIFT and swept by F ENV) make a vowel.
-    bool renderVox (Voice& voice, const Patch& p, float* out, uint32_t n)
+    bool renderVox (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         static constexpr float f1[5] = { 730.0f, 530.0f, 270.0f, 570.0f, 300.0f }, f2[5] = { 1090.0f, 1840.0f, 2290.0f, 840.0f, 870.0f };
         const float at = p.knob[1] * 4.0f;
@@ -1134,7 +1211,7 @@ private:
     // PULSAR: a pulsaret (one cycle at FORMANT times the note, its SHAPE from sine to saw to square to noise, its
     // ENVELOPE from flat to falling to a bell) fired at the note, or DENSITY octaves below it (down to a rhythm);
     // MASK leaves some out, JITTER moves them.
-    static bool maskPlays (int mask, int k, dsp::Noise& noise)
+    static bool maskPlays (int mask, uint32_t k, dsp::Noise& noise)
     {
         switch (mask)
         {
@@ -1148,7 +1225,7 @@ private:
             default: return true;
         }
     }
-    bool renderPulsar (Voice& voice, const Patch& p, float* out, uint32_t n)
+    bool renderPulsar (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const float hz = voice.noteHz * pitchRatio * std::exp2 (p.v[0] / 12.0f);
         const float every = rate / std::max (0.05f, hz * std::exp2 (-8.0f * p.knob[2]));
@@ -1188,9 +1265,9 @@ private:
     }
 
     // MODAL: twelve resonating modes, their ratios from MATERIAL (a string's harmonics, a bar's, a drum skin's, a
-    // bell's), struck by a mallet (MALLET hard to soft) and NOISE; BRIGHT tilts them, DAMP shortens them, the higher
+    // bell's), struck by a mallet (MALLET soft to hard) and NOISE; BRIGHT tilts them, DAMP shortens them, the higher
     // ones sooner, POSITION is where it is struck, SCATTER pulls the modes off their ratios.
-    bool renderModal (Voice& voice, const Patch& p, float* out, uint32_t n, bool slow)
+    bool renderModal (Voice& voice, const Patch& p, float* __restrict out, uint32_t n, bool slow)
     {
         static constexpr float ratios[4][12] = {
             { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 },
@@ -1203,33 +1280,50 @@ private:
             voice.st[6] = 0.0f; // the loudest this sub-block: quiet through a whole one, it has ended
         const float released = voice.released && voice.slot < 0 ? 1.0f : 0.0f;
         const float key[9] = { voice.noteHz * pitchRatio, p.knob[0], p.knob[1], p.knob[2], p.knob[3], p.knob[4], p.knob[5], p.knob[7], released };
-        if (slow && (voice.fresh || std::memcmp (key, voice.modalFor, sizeof (key)) != 0))
+        const bool restMoved = voice.fresh || std::memcmp (key + 1, voice.modalFor + 1, sizeof (key) - sizeof (float)) != 0;
+        if (slow && (restMoved || key[0] != voice.modalFor[0] || voice.modalHz != p.v[0]))
         {
             std::memcpy (voice.modalFor, key, sizeof (key));
+            voice.modalHz = p.v[0];
             const float hz = voice.noteHz * pitchRatio * std::exp2 (p.v[0] / 12.0f);
-            const float m = p.knob[1] * 3.0f;
-            const int lo = std::min (2, (int) m);
-            const float frac = m - (float) lo;
-            const float t60 = std::max (0.03f, 8.0f * std::pow (0.01f, p.knob[3])) * (released > 0.0f ? 0.12f : 1.0f);
-            const float pos = 0.05f + 0.9f * p.knob[4], tilt = p.knob[2] * 2.0f - 1.5f;
+            if (restMoved) // what does not follow the pitch: the ratios, the losses, the strike's gains
+            {
+                const float m = p.knob[1] * 3.0f;
+                const int lo = std::min (2, (int) m);
+                const float frac = m - (float) lo;
+                const float t60 = std::max (0.03f, 8.0f * std::pow (0.01f, p.knob[3])) * (released > 0.0f ? 0.12f : 1.0f);
+                const float pos = 0.05f + 0.9f * p.knob[4], tilt = p.knob[2] * 2.0f - 1.5f;
+                for (int i = 0; i < 12; ++i)
+                {
+                    voice.modalRatio[i] = std::exp (std::log (ratios[lo][i]) * (1.0f - frac) + std::log (ratios[lo + 1][i]) * frac)
+                                          * (1.0f + p.knob[7] * 0.06f * scatter[i]);
+                    voice.modalR[i] = std::exp (-6.9077553f * (1.0f + 0.25f * (float) i) / (t60 * rate));
+                    voice.modalG[i] = modalStrike (i, pos, tilt);
+                }
+                voice.st[1] = 1.0f + rate * (0.0001f + 0.006f * (1.0f - p.knob[5]) * (1.0f - p.knob[5])); // the mallet's width
+            }
+            // The strike's gains: scaled down when they add up to more than the default patch's (BRIGHT and POSITION
+            // can sum them to five times as much), never up.
+            float sum = 0.0f;
+            for (int i = 0; i < 12; ++i)
+                if (hz * voice.modalRatio[i] <= 0.45f * rate) sum += voice.modalG[i];
+            const float norm = sum > modalStrikeRef * 1.001f ? modalStrikeRef / sum : 1.0f; // (a hair over: the default itself)
             for (int i = 0; i < 12; ++i)
             {
-                const float ratio = std::exp (std::log (ratios[lo][i]) * (1.0f - frac) + std::log (ratios[lo + 1][i]) * frac)
-                                    * (1.0f + p.knob[7] * 0.06f * scatter[i]);
-                const float f = hz * ratio;
+                const float f = hz * voice.modalRatio[i];
                 if (f > 0.45f * rate) { voice.mg[i] = voice.mb1[i] = voice.mb2[i] = 0.0f; continue; }
                 // The coupled (rotating) form: its tuning rests on sin w, exact to the bottom of the range at any
                 // rate, where 2 r cos w (the direct form's) runs out of float's precision close to 2.
-                const float r = std::exp (-6.9077553f * (1.0f + 0.25f * (float) i) / (t60 * rate));
+                const float r = voice.modalR[i];
                 const float w = 2.0f * dsp::pi * f * invRate;
                 voice.mb1[i] = r * std::cos (w);
                 voice.mb2[i] = r * std::sin (w);
-                voice.mg[i] = std::fabs (wave (0.5f * (float) (i + 1) * pos)) * std::pow ((float) (i + 1), tilt);
+                voice.mg[i] = voice.modalG[i] * norm;
             }
-            voice.st[1] = 1.0f + rate * (0.0001f + 0.006f * (1.0f - p.knob[5]) * (1.0f - p.knob[5])); // the mallet's width
         }
-        const float width = voice.st[1], noise = p.knob[6] * 0.3f;
-        const float nc = std::exp (-1.0f / (0.015f * rate));
+        // NOISE: 0.1 (the default) as it was, easing off toward the top so a full NOISE is about as loud as the strike.
+        const float width = voice.st[1], noise = p.knob[6] * 0.3f * 1.22f / (1.0f + 2.2f * p.knob[6]) * modalNoiseRate;
+        const float nc = modalNoiseCoef;
         // The strike first (the mallet's pulse and the noise), then each mode across the whole call, its state in
         // registers: the sum is added in the same order, mode by mode.
         float x[sub], y[sub];
@@ -1286,7 +1380,7 @@ private:
     // PLUCK: Karplus-Strong. A burst of noise (PICK its brightness, POSITION a comb from where it is plucked) in a
     // line one period long, round a damping filter (BRIGHT) and a loss (DECAY); STIFF bends its overtones sharp,
     // BODY rings a wooden box, TENSION starts it sharp (or flat) and lets it settle.
-    bool renderPluck (Voice& voice, const Patch& p, float* out, uint32_t n, bool slow)
+    bool renderPluck (Voice& voice, const Patch& p, float* __restrict out, uint32_t n, bool slow)
     {
         float* line = &lineStore[(size_t) (&voice - voices) * lineLength];
         const uint32_t mask = lineLength - 1;
@@ -1294,7 +1388,6 @@ private:
         const float a = 0.08f + 0.92f * p.knob[2];
         const float c = -0.6f * p.knob[5];
         const float t60 = std::max (0.02f, voice.released && voice.slot < 0 ? std::min (p.v[1], 0.12f) : p.v[1]);
-        const float lpDelay = (1.0f - a) / a, apDelay = (1.0f - c) / (1.0f + c);
         if (voice.st[0] < 0.0f) // plucked: the line filled with its burst
         {
             const uint32_t period = (uint32_t) std::max (2.0f, std::min ((float) lineLength - 4.0f, rate / hz));
@@ -1310,18 +1403,25 @@ private:
             for (uint32_t j = period; j < lineLength; ++j) line[j] = 0.0f;
             voice.write = period;
             voice.st[0] = 0.0f;
+            voice.aux.set (220.0f, 0.6f, rate); // BODY's box
         }
         if (slow)
         {
-            voice.aux.set (220.0f, 0.6f, rate);
             voice.st[6] = 0.0f; // the loudest this sub-block, as MODAL's
             // The loop's length and loss for this sub-block, worked out here rather than each sample. TENSION's
             // glide still moves the length sample by sample (to second order: it is a few per cent at most).
             voice.st[4] = rate / hz;
-            voice.st[5] = std::exp (-6.9077553f * std::max (2.0f, voice.st[4] - lpDelay - apDelay) / (t60 * rate));
+            // What the damping filter (BRIGHT) and STIFF's allpass add to the loop, at the note's own frequency: their
+            // delay at DC would leave the line too short (the note sharp) when BRIGHT is low or STIFF high.
+            const float w0 = std::max (1e-5f, std::min (2.0f * dsp::pi * hz * invRate, 0.95f * dsp::pi)), sw = std::sin (w0), cw = std::cos (w0);
+            const float b = 1.0f - a;
+            const float lpDelay = std::atan2 (b * sw, 1.0f - b * cw) / w0;
+            const float apDelay = (std::atan2 (-c * sw, 1.0f + c * cw) - std::atan2 (-sw, c + cw)) / w0;
+            voice.st[7] = lpDelay + apDelay;
+            voice.st[5] = std::exp (-6.9077553f * std::max (2.0f, voice.st[4] - voice.st[7]) / (t60 * rate));
         }
-        const float period = voice.st[4], loss = voice.st[5], comp = lpDelay + apDelay, top = (float) lineLength - 4.0f;
-        const float tension = p.v[7] * 0.06f, tc = std::exp (-1.0f / (0.03f * rate));
+        const float period = voice.st[4], loss = voice.st[5], comp = voice.st[7], top = (float) lineLength - 4.0f;
+        const float tension = p.v[7] * 0.06f, tc = pluckTensionCoef;
         const float body = p.knob[6] * 2.0f;
         for (uint32_t i = 0; i < n; ++i)
         {
@@ -1350,7 +1450,7 @@ private:
 
     // KICK: a resonator struck by a pulse (COLOUR from a clean click to a noisy burst, PULSE its level), its PITCH
     // bent down from BEND octaves over TIME, an amp (ATTACK, DECAY) driven into DRIVE and darkened by TONE.
-    bool renderKick (Voice& voice, const Patch& p, float* out, uint32_t n)
+    bool renderKick (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const float pitch = p.v[0] * voice.st[7] * pitchRatio, bend = p.v[1];
         const float bc = std::exp (-1.0f / (std::max (0.0005f, p.v[2]) * rate));
@@ -1389,7 +1489,7 @@ private:
     }
 
     // GND: a sine (swept down by SWEEP), noise coloured by PITCH, or one click shaped by PITCH, each over DECAY.
-    bool renderGnd (Voice& voice, const Patch& p, float* out, uint32_t n)
+    bool renderGnd (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const int source = (int) p.v[0];
         const float hz = p.v[1] * pitchRatio, sweep = p.v[3];

@@ -51,7 +51,8 @@ struct Plugin
     // frame (events stamped past it answered there).
     bool resetThisBlock = false;
     uint32_t lastFrame = 0;
-    // The machine before KIT: going back to it from KIT keeps its Data as they were.
+    // The machine before KIT: going back to it from KIT keeps its Data as they were. A state keeps it; a preset, or a
+    // state from before it was kept, leaves it unknown (kindCount), so leaving KIT then resets Data.
     std::atomic<uint8_t> beforeKit { fmTone };
 #if MACHINE_SCREEN
     // Melodee's screen (melodee_screen.h, ui/): the page, its model, and what it asks of the audio side.
@@ -104,7 +105,11 @@ void store (Plugin& p, uint32_t id, float value, bool live)
         p.engine.set (id, value);
     }
 }
-void beginMain (Plugin& p) { p.mainSeq.fetch_add (1, std::memory_order_acq_rel); }
+void beginMain (Plugin& p)
+{
+    p.mainSeq.fetch_add (1, std::memory_order_acq_rel);
+    std::atomic_thread_fence (std::memory_order_release); // the set's values are stored after the odd count, never before
+}
 void endMain (Plugin& p)
 {
     p.mainSeq.fetch_add (1, std::memory_order_release);
@@ -480,6 +485,9 @@ const clap_plugin_melodee_screen screenExtension { screenPaint, screenInput, scr
 // keep their defaults, so a state saved by another version still loads.
 constexpr char stateTag[4] = { 'M', 'A', 'C', 'H' };
 constexpr uint32_t stateVersion = 1;
+// Not a parameter: the machine KIT was entered from, saved after the parameters (a loader that doesn't know the id
+// skips it).
+constexpr uint32_t beforeKitId = 0x10000;
 
 bool writeAll (const clap_ostream* s, const void* data, uint64_t size)
 {
@@ -517,10 +525,11 @@ void askPaint (Plugin& p)
 #endif
 }
 
-// Every value at once, from the main thread (a state or a preset loaded). The machine first, so the engine never
-// resets what comes with it.
-void setAll (Plugin& p, const float* values)
+// Every value at once, from the main thread (a state or a preset loaded), and the machine KIT was entered from
+// (kindCount: unknown). The machine first, so the engine never resets what comes with it.
+void setAll (Plugin& p, const float* values, uint8_t before)
 {
+    p.beforeKit.store (before, std::memory_order_relaxed);
     beginMain (p);
     for (uint32_t i = 0; i < paramCount; ++i) p.values[i].store (values[i], std::memory_order_relaxed);
     endMain (p);
@@ -531,14 +540,15 @@ void setAll (Plugin& p, const float* values)
 bool stateSave (const clap_plugin* plugin, const clap_ostream* stream)
 {
     auto& p = of (plugin);
-    const uint32_t header[2] = { stateVersion, paramCount };
+    const uint32_t header[2] = { stateVersion, paramCount + 1 };
     if (! writeAll (stream, stateTag, 4) || ! writeAll (stream, header, sizeof (header))) return false;
     for (uint32_t i = 0; i < paramCount; ++i)
     {
         const struct { uint32_t id; float value; } pair { paramAt (i).id, p.values[i].load (std::memory_order_relaxed) };
         if (! writeAll (stream, &pair, sizeof (pair))) return false;
     }
-    return true;
+    const struct { uint32_t id; float value; } before { beforeKitId, (float) p.beforeKit.load (std::memory_order_relaxed) };
+    return writeAll (stream, &before, sizeof (before));
 }
 
 bool stateLoad (const clap_plugin* plugin, const clap_istream* stream)
@@ -551,14 +561,20 @@ bool stateLoad (const clap_plugin* plugin, const clap_istream* stream)
         return false;
     float loaded[paramCount];
     for (uint32_t i = 0; i < paramCount; ++i) loaded[i] = paramAt (i).def;
+    uint8_t before = kindCount;
     for (uint32_t i = 0; i < header[1]; ++i)
     {
         struct { uint32_t id; float value; } pair {};
         if (! readAll (stream, &pair, sizeof (pair))) return false;
+        if (pair.id == beforeKitId)
+        {
+            if (pair.value >= 0.0f && pair.value < (float) kindCount && (uint8_t) pair.value != kit) before = (uint8_t) pair.value;
+            continue;
+        }
         const int index = paramIndex (pair.id);
         if (index >= 0) loaded[index] = clampParam (paramAt ((uint32_t) index), pair.value);
     }
-    setAll (p, loaded);
+    setAll (p, loaded, before);
     askPaint (p);
     return true;
 }
@@ -578,7 +594,7 @@ bool presetFromLocation (const clap_plugin* plugin, uint32_t kind, const char*, 
     }
     float values[paramCount];
     presetValuesOf (*preset, values);
-    setAll (p, values);
+    setAll (p, values, kindCount);
     askPaint (p);
     if (const auto* hostParams = static_cast<const clap_host_params*> (p.host->get_extension (p.host, CLAP_EXT_PARAMS)))
         if (hostParams->rescan != nullptr) hostParams->rescan (p.host, CLAP_PARAM_RESCAN_VALUES | CLAP_PARAM_RESCAN_TEXT);
@@ -703,6 +719,12 @@ clap_process_status pluginProcess (const clap_plugin* plugin, const clap_process
 
     const auto* in = process->in_events;
     const uint32_t count = in != nullptr ? in->size (in) : 0;
+    // Whether anything but the host's transport came in (Melodee sends that every block, playing or not).
+    bool heard = false;
+    auto take = [&] (const clap_event_header* e) {
+        heard |= ! (e->space_id == CLAP_CORE_EVENT_SPACE_ID && e->type == CLAP_EVENT_TRANSPORT);
+        handle (p, e, process->out_events);
+    };
     uint32_t next = 0, done = 0;
     while (done < frames)
     {
@@ -710,7 +732,7 @@ clap_process_status pluginProcess (const clap_plugin* plugin, const clap_process
         {
             const auto* e = in->get (in, next);
             if (e->time > done) break;
-            handle (p, e, process->out_events);
+            take (e);
             ++next;
         }
         uint32_t until = frames;
@@ -718,7 +740,7 @@ clap_process_status pluginProcess (const clap_plugin* plugin, const clap_process
         p.engine.render (left + done, right ? right + done : nullptr, until - done);
         done = until;
     }
-    for (; next < count; ++next) handle (p, in->get (in, next), process->out_events); // stamped past the block
+    for (; next < count; ++next) take (in->get (in, next)); // stamped past the block
 #if MACHINE_SCREEN
     if (p.screenHost != nullptr)
     {
@@ -728,13 +750,15 @@ clap_process_status pluginProcess (const clap_plugin* plugin, const clap_process
         for (uint32_t i = 0; i < shift; ++i) p.scope[i].store (p.scope[i + keep].load (std::memory_order_relaxed), std::memory_order_relaxed);
         for (uint32_t i = 0; i < keep; ++i) p.scope[shift + i].store (left[frames - keep + i], std::memory_order_relaxed);
         p.sincePaintAsk += frames;
-        const bool moving = count > 0 || p.engine.voicesOn() > 0 || p.animating.load (std::memory_order_relaxed);
+        const bool moving = heard || p.engine.voicesOn() > 0 || p.animating.load (std::memory_order_relaxed);
         if (moving && p.sincePaintAsk * 30.0 >= p.engine.sampleRate())
         {
             p.sincePaintAsk = 0;
             p.screenHost->request_paint (p.host);
         }
     }
+#else
+    (void) heard;
 #endif
     return p.engine.voicesOn() > 0 ? CLAP_PROCESS_CONTINUE : CLAP_PROCESS_CONTINUE_IF_NOT_QUIET;
 }
