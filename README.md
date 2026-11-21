@@ -1,3 +1,225 @@
 # hdslave Machine
 
-A CLAP instrument for the Akai MPC Sample, running in Melodee by Kerem Kiliç (Ellic Studio).
+A CLAP instrument for the Akai MPC Sample, running in Melodee by Kerem Kiliç (Ellic Studio). It's a multi-machine
+synth in the style of Elektron's machines:
+
+- **FM TONE:** a four-operator FM voice, eight notes at once.
+- **Seven drum machines:** BD, SD, CP, HH, CY/CB, EFM DRUM and GND.
+- **KIT:** eight drum slots played from one track.
+- **A second barrage of stranger voices:** TERRAIN (wave terrain), PHASE (vector phaseshaping), VOX (VOSIM),
+  MODAL (a struck object), PLUCK (a plucked string), GENDY (dynamic stochastic), PULSAR and ORGAN.
+- **KICK:** a resonator kick in the style of Korg's volca kick, with all ten of its controls.
+
+Every machine goes through the same voice section: a filter with its own envelope, drive, and an amp envelope. One
+LFO can reach the pitch, the filter, the level or any Data knob.
+
+In melodee-hdslave the Machine draws its own page on the MPC's screen (`ui/`, the screen extension). In any other
+host, or in stock Melodee, it plays through the host's ordinary parameter pages.
+
+## Machines
+
+MACHINE picks one. Data A–H (and for KICK also I and J) then mean what that machine says. Going to KIT and back
+to the machine you left keeps its Data. A host's reset to default sets a Data knob to FM TONE's default, whatever
+the machine; CLAP lets a plug-in change its defaults only while it is off. A new machine sets its Data to its own defaults (a good
+sound of it), and the host is told. A saved project or a preset keeps the Data it had.
+
+| Machine | A | B | C | D | E | F | G | H |
+|---|---|---|---|---|---|---|---|---|
+| FM TONE | ALGO (1–8) | RATIO C | RATIO A | RATIO B | HARM ± | DETUNE | FDBK | MIX |
+| BD | TUNE | DECAY | SWEEP | SWP TIME | CLICK | DRIVE | FM | NOISE |
+| SD | TUNE | TONE DEC | NOIS DEC | SNAPPY | BODY | FILTER | DRIVE | – |
+| CP | BURSTS (1–8) | SPREAD | DECAY | TONE | FILTER | ROOM | – | – |
+| HH | MODE (CLOSED / OPEN) | TONE ± | DECAY | FILTER | METAL | NOISE | – | – |
+| CY/CB | MODE (CY / CB) | TONE ± | DECAY | RING | FILTER | – | – | – |
+| EFM DRUM | PITCH | RATIO | INDEX | P DECAY | I DECAY | A DECAY | SWEEP | NOISE |
+| GND | SOURCE (SINE / NOISE / IMPULSE) | PITCH | DECAY | SWEEP | – | – | – | – |
+| TERRAIN | SURFACE (6) | X ± | Y ± | WIDTH | HEIGHT | WARP | SPIN | DRIFT |
+| PHASE | D | V | V ENV ± | ENV DEC | TWIN | SUB | FOLD | GRIT |
+| VOX | TUNE ± | VOWEL | SHIFT | PULSES (1–8) | P DECAY | F ENV ± | F DEC | LENGTH |
+| MODAL | TUNE ± | MATERIAL | BRIGHT | DAMP | POSITION | MALLET | NOISE | SCATTER |
+| PLUCK | TUNE ± | DECAY | BRIGHT | PICK | POSITION | STIFF | BODY | TENSION ± |
+| GENDY | POINTS (3–16) | AMP WALK | TIMEWALK | WILD | LOCK | SMOOTH | BOUNDS | RATE |
+| PULSAR | TUNE ± | FORMANT | DENSITY | SHAPE | ENVELOPE | MASK (8) | JITTER | LENGTH |
+| ORGAN | 16' | 5 1/3' | 8' | 4' | 2 2/3' | 2' | 1 3/5' | 1 1/3' |
+| KICK | PITCH | BEND | TIME | DECAY | ATTACK | COLOUR | PULSE | DRIVE |
+
+KICK's Data I is TONE and its Data J is ACCENT.
+
+**FM TONE**
+- **Operators:** C, A, B1 and B2.
+  - RATIO C, A and B set their frequencies against the note; B1 and B2 share RATIO B.
+  - DETUNE moves A up and the Bs down by up to 25 cents.
+  - HARM bends the carrier's wave (+) or the modulators' (−) toward richer shapes.
+  - FDBK feeds B2 back into itself.
+- **Algorithms** (who modulates whom):
+
+  | ALGO | Modulation | Heard |
+  |---|---|---|
+  | 1 | B2 → B1 → A → C | C |
+  | 2 | (B1 + B2) → A → C | C |
+  | 3 | B2 → B1 → C, A → C | C |
+  | 4 | A → C, B2 → B1 | C, B1 |
+  | 5 | B2 → A, B1, C | A, B1, C |
+  | 6 | B2 → B1 | C, A, B1 |
+  | 7 | (A + B1 + B2) → C | C |
+  | 8 | none | all four |
+
+- **MIX** blends C's output with the other heard operators (or, where only C is heard, A's).
+- **FM ENV** (eight more parameters, FM TONE's alone) shapes the modulators' levels:
+  - A's envelope sets A's level; B's sets B1 and B2's.
+  - Each rises over ATK, falls to END over DEC and stays there.
+  - LEV is how deep it goes.
+
+**The drums**
+- One hit at a time: a new one chokes the last over 3 ms.
+- They ignore note-off and ring out.
+- They don't follow the note's pitch; TUNE or PITCH sets it.
+
+**The second barrage**
+- **TERRAIN:** a point orbits a surface once a period (RIPPLE, SADDLE, LATTICE, DUNE, KNOT or CRATER), on an
+  ellipse WIDTH by HEIGHT round (X, Y). The height under it is the sound. WARP packs the hills closer, SPIN turns the
+  ellipse, and DRIFT lets its centre wander.
+- **PHASE:** a cosine read through a phase bent at the point (D, V). V above D gives a formant. V ENV sweeps V; TWIN
+  adds a mirrored, detuned copy; SUB an octave below; FOLD wavefolds; GRIT holds samples.
+- **VOX:** each period starts PULSES sin² pulses at a formant, each softer by P DECAY, then silence. Two of them,
+  VOWEL's formants (A, E, I, O, U and between), make a vowel. SHIFT moves the formants and F ENV sweeps them.
+- **MODAL:** twelve resonating modes. Their ratios come from MATERIAL: a string's harmonics, a bar's, a drum skin's,
+  a bell's. They're struck by a mallet (MALLET hard to soft) and NOISE. BRIGHT tilts them, DAMP shortens them,
+  POSITION is the strike point, and SCATTER pulls the modes off their ratios.
+- **PLUCK:** Karplus-Strong. A burst of noise (PICK its brightness, POSITION a comb) goes round a damping filter
+  (BRIGHT) and a loss (DECAY). STIFF stretches the overtones, BODY rings a wooden box, and TENSION starts the note
+  sharp or flat and lets it settle.
+- **GENDY:** the waveform is POINTS breakpoints. Every few periods (RATE), each point's level and time take a random
+  step (AMP WALK, TIMEWALK; WILD gives the steps heavy tails; BOUNDS are the walls they bounce off). LOCK holds the
+  pitch at the note, and SMOOTH curves the lines.
+- **PULSAR:** a pulsaret is one cycle at FORMANT times the note. SHAPE takes it from sine to saw to square to noise,
+  and ENVELOPE from flat to falling to a bell. It's fired at the note, or up to eight octaves below it (DENSITY: from
+  tone to a rhythm). MASK leaves some out; JITTER moves them.
+- **ORGAN:** eight drawbars, 0–8 each, 3 dB a step. They come from one phase, so they stay locked, plus a key click.
+  The LFO on PITCH is its vibrato.
+- **KICK:** a resonator struck by a pulse (COLOUR from a clean click to a noisy burst, PULSE its level). Its PITCH is
+  bent down from BEND octaves over TIME. Then come the amp (ATTACK, DECAY), DRIVE and TONE. ACCENT sets how far the
+  velocity reaches and how hard it pushes the drive.
+- **On their own,** the new machines follow the note, eight at once:
+  - TERRAIN, PHASE, VOX, GENDY, PULSAR and ORGAN are released by note-off, like FM TONE.
+  - MODAL and PLUCK are damped by it, like a hand on a string.
+  - KICK plays one hit at a time, PITCH at C2 and the note moving it from there.
+- **VOX and PULSAR** have a LENGTH of their own. Its top is INF, held until note-off.
+
+**KIT**
+- Notes 36–43 (a Melodee drum track's first eight pads) play slots 1–8.
+- A slot may also be MODAL, PLUCK, VOX, PULSAR or KICK, played at C3 moved by its TUNE.
+- Each slot has its own machine (BD to GND), Data A–H, LEVEL and PAN.
+- A slot's new hit chokes only itself. A closed HH also chokes the open ones.
+- The default kit: kick, snare, clap, closed and open hats, cymbal, an FM tom, a ground tone.
+
+## The voice section
+
+- **FILTER:**
+  - FREQ, RESO, TYPE (low, high or band pass; zero-delay feedback);
+  - ENV, ±7 octaves from its own envelope (ATTACK, then DECAY).
+- **AMP:**
+  - The envelope: ATTACK, then HOLD at full, then DECAY to silence. DECAY's top is INF: it stays.
+  - RELEASE, when an FM note is let go.
+  - DRIVE (soft clip) and VOLUME (0 dB at three quarters).
+- **LFO:**
+  - SPEED (0.05–30 Hz) and DEPTH (±).
+  - WAVE: TRI, SAW, SQR, S+H or SINE.
+  - DEST: PITCH (±1 octave), FREQ (±4 octaves), AMP, or DATA A–H.
+- **MIDI:**
+  - The mod wheel deepens the LFO; pitch bend is ±2 semitones.
+  - CC 123 (all notes off) releases every note; CC 120 (all sound off) stops them at once.
+- **Gain and pan** glide across each 32-frame step, so LFO→AMP and level or pan automation don't step.
+- **A voice choked by a new machine** plays out its 3 ms fade with its own sound, never the new machine's.
+
+## Presets
+
+Default, FM Keys, FM Bell, FM Bass, FM Pad, Acid FM, Kick, Long Kick, Snare, Clap, Closed Hat, Open Hat, Cymbal,
+Cowbell, FM Tom, Ground Sine, Kit, Terrain Drone, Terrain Bass, Phase Lead, Phase Acid, Vox Choir, Vox Knock, Marimba,
+Gong, Pluck Harp, Pluck Bass, Gendy Insects, Gendy Buzz, Pulsar Rhythm, Pulsar Formant, Drawbar Organ, Full Organ,
+Resonator Kick, Boom Kick, Kit Explorer (KICK, the new machines and the drums in one kit).
+
+## The screen
+
+In melodee-hdslave, the Machine draws its own page through Melodee's screen extension (`src/melodee_screen.h`). The
+page itself is `ui/`, built in when `ui/` is there (`make`; `make UI_DIR=...` for another copy). It shows:
+- the machine across the top;
+- the parameters as rows beneath it, grouped (MACHINE, FM ENV, SLOT, FILTER, AMP, LFO);
+- a side panel that draws the group under the cursor;
+- K1–K3's cards at the foot.
+
+The controls:
+- **Wheel:** moves the cursor.
+- **Push:** edits the row under the cursor.
+- **Minus / Plus:** jump a group.
+- **K1–K3:** turn the cursor's row and the two after it.
+
+`src/machine.cpp` builds the page's rows from the parameters. The page's edits become values the host is told to read
+again. The page asks for paints while something moves, and the sound asks while it plays.
+
+## Build and test
+
+```sh
+./build.sh          # builds build/Machine.clap and runs the tests, in Melodee's Linux arm64 build image
+tools/bench.sh      # instructions a 128-frame block takes, per patch (callgrind)
+```
+
+**`tests/host.cpp`** loads the plug-in as a host does and checks:
+- parameters, their ids and text;
+- state and the 36 presets;
+- FM TONE's pitch, ratios, bend, sustain and release, velocity, FM ENV, the eight algorithms and polyphony;
+- every drum machine sounding, ending and choking;
+- the second barrage on the note (by zero crossings or by period), ending once let go, and KICK's octaves and
+  ACCENT;
+- PULSAR's rhythm;
+- a new machine's Data reset (all ten);
+- KIT's keys, pan, hat choke and its new slot machines;
+- the same output at any block size for every machine;
+- 180 random and extreme patches staying finite, every machine at 22.05, 44.1, 48, 96 and 192 kHz;
+- every pair of machines switched while notes sound (and KIT's slots), staying finite;
+- MODAL in tune in the bass at 48 and 96 kHz; the same brightness at 96 kHz as at 48;
+- no click from the filter coming back from bypass, nor from a stolen voice;
+- PLUCK's low notes at 96 kHz;
+- every parameter's text read back as itself (each Data under each machine);
+- the host's copy of a Data value right after a machine change in the same block;
+- with the screen built in, the page: it paints, K1–K3 follow the cursor, edits change parameters, and the machine
+  changes from its own row.
+
+It also writes demo renders to `build/demo/`.
+
+**`tests/fingerprint.cpp`** hashes every output sample of 101 fixed scenarios against `tests/fingerprint.txt`. Work
+meant to keep the sound must leave them as they are; `make fingerprint-update` records a meant change.
+
+**Cost** in instructions a block on the MPC's Cortex-A55 (callgrind, 128 frames at 48 kHz):
+
+| Patch | Instructions a block | Share of one core |
+|---|---|---|
+| Eight held FM voices with everything busy | 214,000 | about 4.5% |
+| An FM chord | 104,000 | about 2.2% |
+| A busy KIT groove | 40,000 | about 0.8% |
+| Silence | 3,000 | about 0.06% |
+
+With eight voices each (the filter on), the second barrage runs from 2.6% to 3.7% of a core:
+
+| Machine | Share of one core |
+|---|---|
+| GENDY | 2.6% |
+| PULSAR | 2.7% |
+| TERRAIN | 3.0% |
+| ORGAN | 3.0% |
+| PLUCK | 3.1% |
+| VOX | 3.2% |
+| PHASE | 3.4% |
+| MODAL | 3.7% |
+
+KICK hitting every sixteenth takes 0.55%.
+
+Data values, the shared section's coefficients and FM TONE's steps are worked out again only when what they come
+from changes.
+
+## Install
+
+Copy `build/Machine.clap` to `Melodee/Plugins/hdslave Machine/hdslave Machine.clap` on the card. Then pick it on an
+empty track: Stage, Plugin, hdslave Machine. It needs only libc and libm.
+
+Not tried on the MPC Sample yet.
