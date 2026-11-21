@@ -60,21 +60,6 @@ for name,indices in [('sweep',(0,2,4,7,10,13,17)),('glide',(0,1,2,3,4,5,7)),('vo
     all_frames=[frame(i) for i in range(18)]
     all_frames[0].save(gallery/(name+'.gif'),save_all=True,append_images=all_frames[1:],duration=16,loop=0,disposal=1)
 
-# Three header studies at delivery scale, in the same real FM TONE layout.
-field=gallery/'states/01-fm-algo/melodee.png'
-proof=Image.new('RGB',(960,260),(16,12,24))
-draw=ImageDraw.Draw(proof)
-small=ImageFont.truetype(face,11)
-for i,(name,label) in enumerate((('checker-well','Checker well'),('contour-pinch','Contour pinch'),('wire-membrane','Wire membrane'))):
-    shown=Image.open(field).convert('RGB')
-    art=Image.open(root/'assets/explore'/(name+'-lcd.png')).convert('RGBA')
-    shown.paste((16,12,24),(204,26,272,47))
-    shown.paste(art,(204,26),art)
-    proof.paste(shown,(i*320,0))
-    draw.text((i*320+5,242),label,font=small,fill='#dac9df')
-proof.save(root/'assets/explore/header-print-proofs.png')
-
-
 added=Image.new('RGB',(3*320,3*240),(16,12,24))
 for i,path in enumerate(states[21:]):
     im=Image.open(gallery/'states'/path.stem/'melodee.png')
@@ -83,13 +68,13 @@ added.save(gallery/'new-machines.png')
 
 # Show the icon and the assigned print together, exactly as the panel paints them.
 machine_pages = [0, *range(5, 13), *range(21, len(states))]
-header_sheet = Image.new('RGB', (1340, 86 + 90*((len(machine_pages)+1)//2)), (17, 14, 24))
+header_sheet = Image.new('RGB', (1340, 86 + 138*((len(machine_pages)+1)//2)), (17, 14, 24))
 draw = ImageDraw.Draw(header_sheet)
 draw.text((20, 18), 'Machine prints', font=title, fill='#f1ebef')
 draw.text((1034, 34), 'RGB565  /  2x', font=labels, fill='#bcabc9')
 for i, state_index in enumerate(machine_pages):
     path = gallery/'states'/states[state_index].stem/'melodee.png'
     with Image.open(path) as page:
-        header = page.crop((0, 21, 320, 59))
-    header_sheet.paste(scale(header, 2), (20+660*(i%2), 84+90*(i//2)))
+        header = page.crop((0, 21, 320, 84))
+    header_sheet.paste(scale(header, 2), (20+660*(i%2), 84+138*(i//2)))
 header_sheet.save(gallery/'machine-prints-2x.png', optimize=True)

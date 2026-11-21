@@ -324,7 +324,7 @@ void testEnvelopeAndKitControls() {
     check(amp.frame != finite, "infinite decay paints");
 }
 void testLayoutAndScroll() {
-    static_assert(art::bandWidth <= 70, "header print must leave the entire index cell clear");
+    static_assert(art::bandWidth == 68 && art::bandHeight == 21);
     for (int kind = 0; kind < machineCount; ++kind)
         for (Kind slotMachine : slotKinds) {
             Rig layout(kind);
@@ -383,33 +383,60 @@ void testVoiceDiagrams() {
         check(partial == voice.frame, "voice partial matches whole");
     }
 }
+bool sameRegion(const Frame &a, const Frame &b, int x, int y, int w, int h) {
+    for (int row = y; row < y + h; ++row) {
+        int offset = row * width + x;
+        if (!std::equal(a.begin() + offset, a.begin() + offset + w, b.begin() + offset))
+            return false;
+    }
+    return true;
+}
 void testSlotDiagrams() {
-    for (int k = 0; k < slotKindCount; ++k) {
-        Rig slot;
-        slot.m = build(
-            [&](int id) {
-                if (id == 0)
-                    return float(Kind::Kit) / (machineCount - 1);
-                if (id == slotsBase)
-                    return float(k) / (slotKindCount - 1);
-                return defaultValue(id);
-            },
-            0);
-        slot.key(Key::Wheel, 3);
-        slot.settle();
-        check(slot.m.kitMachines[0] == uint8_t(slotKinds[k]), "KIT choice maps to stored machine id");
-        check(std::strcmp(slot.m.rows[2].text, machineNames[int(slotKinds[k])]) == 0, "KIT machine name");
-        check(slot.m.rows[3].id == 101 && slot.m.rows[3].group == Group::Slot, "KIT data ids and group");
-        Rig single{int(slotKinds[k])};
-        single.settle();
-        for (int i = 0; i < single.m.rowCount; ++i)
-            if (single.m.rows[i].role == Role::Data)
-                single.m.rows[i].value = slot.m.rows[3 + single.m.rows[i].data].value;
-        single.paint();
-        for (int y = 52; y < 149; ++y)
-            for (int x = 202; x < 316; ++x)
-                check(slot.frame[y * width + x] == single.frame[y * width + x],
-                      "slot and standalone diagram agree");
+    Rig kit{int(Kind::Kit)};
+    kit.key(Key::Wheel, 3);
+    for (int slot = 0; slot < 8; ++slot) {
+        int base = slotsBase + slot * slotStride;
+        for (int k = 0; k < slotKindCount; ++k) {
+            kit.m = build(
+                [&](int id) {
+                    if (id == 0)
+                        return float(Kind::Kit) / (machineCount - 1);
+                    if (id == base)
+                        return float(k) / (slotKindCount - 1);
+                    return defaultValue(id);
+                },
+                slot);
+            kit.paint();
+            Frame partial = kit.frame;
+            kit.paint(true);
+            check(partial == kit.frame, "slot/voice change clears previous ink on partial paint");
+            check(kit.m.kitMachines[slot] == uint8_t(slotKinds[k]), "slot machine mapping");
+            check(kit.m.rows[3].id == uint32_t(base + 1) && kit.m.rows[3].group == Group::Slot,
+                  "kit data mapping");
+            Rig single{int(slotKinds[k])};
+            for (int i = 0; i < single.m.rowCount; ++i) {
+                Row &row = single.m.rows[i];
+                if (row.role == Role::Data)
+                    row.value = kit.m.rows[3 + row.data].value;
+            }
+            single.settle();
+            check(sameRegion(kit.frame, single.frame, 4, 2, 192, 20),
+                  "slot uses its voice's emblem and title");
+            check(sameRegion(kit.frame, single.frame, 202, 59, 114, 90),
+                  "slot diagram matches standalone beneath print");
+            check(kit.frame[33 * width + 253 + 8 * slot] == 0xfff4ebed, "active slot meter is underlined");
+            if (slotKinds[k] == Kind::CyCb) {
+                kit.m.rows[3].value = 0;
+                kit.paint();
+                auto cymbal = kit.frame;
+                kit.m.rows[3].value = 1;
+                kit.paint();
+                check(!sameRegion(cymbal, kit.frame, 43, 3, 153, 18), "CY/CB mode updates the slot title");
+                partial = kit.frame;
+                kit.paint(true);
+                check(kit.frame == partial, "cowbell heading matches full paint");
+            }
+        }
     }
 }
 void testKickMapping() {
@@ -457,18 +484,17 @@ void testMachinePrints() {
                 rig.m.kitSlot = 5;
                 rig.paint();
             }
-            constexpr int printY = placeBarRows + 2;
-            for (int x = 204; x < 204 + art::bandWidth; ++x) {
-                for (int y = 0; y < printY; ++y)
-                    check(rig.frame[y * width + x] == 0xff100c18, "timeline and two-row banner gutter");
-                check(rig.frame[(printY + art::bandHeight) * width + x] == 0xff100c18,
-                      "clear row between banner and meters");
+            constexpr int printY = 38, printX = 248;
+            for (int x = printX; x < printX + art::bandWidth; ++x) {
+                check(rig.frame[36 * width + x] == 0xff382444, "masthead divider");
+                check(rig.frame[37 * width + x] == 0xff100c18, "one clear row above the banner");
             }
-            for (int y = 0; y < art::bandHeight; ++y)
-                for (int x = 0; x < art::bandWidth; ++x) {
+            // These rows lie above the section label, clear of the navigation tab and left feather.
+            for (int y = 0; y < 7; ++y)
+                for (int x = 8; x < art::bandWidth; ++x) {
                     auto ink = print[y * art::bandWidth + x];
-                    check(rig.frame[(printY + y) * width + 204 + x] == (ink ? art::inks[ink] : 0xff100c18),
-                          "correct static machine print through meter and slot changes");
+                    check(rig.frame[(printY + y) * width + printX + x] == (ink ? art::inks[ink] : 0xff100c18),
+                          "raised machine print is stable during meter and kit slot changes");
                 }
         }
     }
@@ -576,7 +602,7 @@ void bench() {
     std::printf("terrain full %.6f ms/paint\n", terrainMs);
     constexpr size_t bytes = sizeof(font::body) + sizeof(font::bodyWidth) + sizeof(font::title) +
                              sizeof(font::titleWidth) + sizeof(art::inks) + sizeof(art::icons) +
-                             sizeof(art::portraits) + sizeof(art::banners);
+                             sizeof(art::banners);
     std::printf("compiled fonts and art: %zu bytes; Screen: %zu bytes\n", bytes, sizeof(Screen));
 }
 }

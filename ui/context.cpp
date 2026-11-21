@@ -123,19 +123,128 @@ float wave(int mode, float t) {
         return std::sin(t * 6.2831853f);
     }
 }
+void drumLegend(Raster &r, const char *label) {
+    r.text(5, 2, label, valueInk);
+    int end = 9 + textWidth(label, 16);
+    r.box(end, 7, 111 - end, 1, rule);
+}
+
+template <class Sample> void traceLane(Raster &r, int baseline, const char *label, Ink ink, Sample sample) {
+    r.text(5, baseline - 20, label, muted);
+    r.box(5, baseline, 104, 1, rule);
+    int previous = baseline;
+    for (int x = 0; x < 103; ++x) {
+        int y = baseline - int(std::lround(sample(x) * 12));
+        if (x)
+            r.line(4 + x, previous, 5 + x, y, ink);
+        previous = y;
+    }
+}
+
+float diagramDecay(int x, float decay) { return std::exp(-x / (6.f + 52.f * decay)); }
+
+void snare(Raster &r, const float *data) {
+    drumLegend(r, "DECAY SHAPES");
+    for (int layer = 0; layer < 2; ++layer) {
+        bool noise = layer == 1;
+        int mid = noise ? 79 : 40;
+        r.text(5, mid - 23, noise ? "NOISE" : "BODY", muted);
+        r.box(5, mid, 104, 1, rule);
+        int previous = mid;
+        for (int x = 0; x < 103; ++x) {
+            float sample;
+            if (noise) {
+                // A fixed trace makes changes in noise decay readable between hits.
+                uint32_t bits = (uint32_t(x) + 47) * 2654435761u;
+                bits ^= bits >> 16;
+                bits *= 2246822519u;
+                sample = int(bits >> 24) / 127.5f - 1.f;
+            } else {
+                sample = std::sin(x * (.65f + .5f * data[0]));
+            }
+            int envelope = int(std::lround(12 * diagramDecay(x, data[1 + layer])));
+            int y = mid - int(std::lround(sample * envelope));
+            if (envelope && x % 2 == 0)
+                r.box(5 + x, mid - envelope, 1, 2 * envelope + 1, noise ? 0xff462744 : 0xff234048);
+            if (x)
+                r.line(4 + x, previous, 5 + x, y, noise ? orchid : cyan);
+            previous = y;
+        }
+    }
+}
+
+void drumDiagram(Raster &r, Kind kind, const float *data) {
+    r.box(0, 0, r.w, r.h, panel);
+    switch (kind) {
+    case Kind::Sd:
+        snare(r, data);
+        break;
+    case Kind::Bd:
+    case Kind::Efm: {
+        bool bass = kind == Kind::Bd;
+        drumLegend(r, bass ? "PITCH SWEEP" : "FM ENVELOPES");
+        traceLane(r, 42, "PITCH", orchid,
+                  [&](int x) { return (.45 + .7 * data[bass ? 2 : 6]) * diagramDecay(x, data[3]); });
+        traceLane(r, 81, bass ? "AMP" : "INDEX", cyan, [&](int x) {
+            return diagramDecay(x, data[bass ? 1 : 4]) * (bass ? 1. : .3 + .7 * data[2]);
+        });
+        break;
+    }
+    case Kind::Cp: {
+        drumLegend(r, "NOISE BURSTS");
+        int bursts = 1 + position(data[0], 7);
+        for (int i = 0; i < bursts; ++i)
+            r.box(6 + i * (5 + position(data[1], 7)), 27, 2, 8, orchid);
+        traceLane(r, 77, "ENVELOPE", cyan, [&](int x) {
+            float phase = x / (6.f + 8.f * data[1]);
+            return phase < bursts ? std::exp(-std::fmod(phase, 1.f) * (2 + 6 * (1 - data[2]))) : 0.;
+        });
+        break;
+    }
+    case Kind::Hh:
+    case Kind::CyCb: {
+        drumLegend(r, kind == Kind::Hh ? "METAL BANK" : "METAL VOICE");
+        bool bell = kind == Kind::CyCb && data[0] >= .5f;
+        int oscillators = bell ? 2 : 6;
+        r.text(5, 21, bell ? "TWO SQUARES" : "OSCILLATORS", muted);
+        r.box(5, 64, 104, 1, rule);
+        for (int i = 0; i < oscillators; ++i) {
+            int x = 11 + i * 90 / oscillators + position(data[1], 8);
+            int height = 11 + (i * 17) % 31;
+            r.box(x, 64 - height, 3, height, orchid);
+            r.box(x, 64 - height, 5, 2, cyan);
+        }
+        r.text(5, 77, "DECAY", muted);
+        r.box(49, 81, 59, 2, rule);
+        r.box(49, 81, 1 + position(data[2], 58), 2, cyan);
+        break;
+    }
+    case Kind::Gnd: {
+        drumLegend(r, "SOURCE SHAPE");
+        int mode = position(data[0], 2);
+        constexpr const char *sources[] = {"SINE", "NOISE", "IMPULSE"};
+        traceLane(r, 58, sources[mode], cyan, [=](int x) {
+            if (mode == 0)
+                return std::sin(x * .18);
+            if (mode == 1)
+                return std::sin(x * 4.9) * .6 + std::sin(x * 2.1) * .4;
+            return x == 7 ? 1. : 0.;
+        });
+        break;
+    }
+    default:
+        break;
+    }
+}
 }
 void context(Raster &r, const Model &m, Group group) {
     r.box(0, 0, r.w, r.h, panel);
-    for (int y = 19; y < r.h; y += 4)
-        r.box(0, y, r.w, 1, 0xff191020);
-    // A two-ink legend strip and a sparse halftone field frame the diagram.
-    for (int y = 0; y < 13; ++y)
-        r.box(0, y, r.w - y / 3, 1, 0xff453052);
+    r.box(4, 13, 106, 1, violet);
     for (int y = 18; y < r.h - 2; y += 3)
         for (int x = 0; x < r.w; x += 4) {
             int edge = r.w - 13 - (y - 18) / 4;
             if (x >= edge)
-                r.dot(x + ((y / 3) & 1), y, 0xff412445);
+                r.dot(x + ((y / 3) & 1), y, halftoneInk);
         }
     Patch p(m);
     if (group == Group::Filter) {
@@ -205,58 +314,7 @@ void context(Raster &r, const Model &m, Group group) {
             voices::panel(r, id, p.data, m);
             return;
         }
-        // The sound portrait and its live parameter diagram have distinct plates.
-        bool plotted = id == 1 || id == 3 || id == 4;
-        int originY = plotted ? 18 : 42;
-        for (int y = 0; y < art::portraitH; ++y)
-            for (int x = 0; x < art::portraitW; ++x) {
-                uint8_t ink = art::portraits[id - 1][y * art::portraitW + x];
-                if (ink)
-                    r.dot(x + (r.w - art::portraitW) / 2, y + originY, art::inks[ink]);
-            }
-        int cornerTop = plotted ? 17 : 32;
-        r.box(5, cornerTop, 6, 1, rule);
-        r.box(5, cornerTop, 1, 5, rule);
-        r.box(107, plotted ? 62 : 94, 6, 1, rule);
-        r.box(112, plotted ? 58 : 90, 1, 5, rule);
-        if (plotted) {
-            r.box(6, 88, 106, 1, rule);
-            for (int x = 8; x < 111; x += 16)
-                r.dot(x, 90, muted);
-        }
-        if (id == 1) {
-            r.text(6, 3, "PITCH SWEEP", muted);
-            curve(
-                r,
-                [&](float x) {
-                    return (.2f + .7f * p.data[2]) * std::exp(-x * (3 + 9 * (1 - p.data[3]))) +
-                           .08f * p.data[0];
-                },
-                orchid, 22);
-            curve(r, [&](float x) { return .42f * std::exp(-x * (2 + 8 * (1 - p.data[1]))); }, cyan, 22);
-        } else if (id == 3) {
-            r.text(6, 3, "BURSTS", muted);
-            const int bursts = 1 + position(p.data[0], 7);
-            curve(
-                r,
-                [&](float x) {
-                    float phase = x / (.06f + .065f * p.data[1]);
-                    return phase < bursts
-                               ? .9f * std::exp(-(phase - std::floor(phase)) * (3 + 7 * (1 - p.data[2])))
-                               : 0.f;
-                },
-                cyan, 22);
-        } else if (id == 4) {
-            r.text(6, 3, "METAL BANK", muted);
-            for (int i = 0; i < 6; ++i) {
-                int x = 11 + i * 15 + position(p.data[1], 7);
-                int amp = 5 + int((i % 3 + 1) * (2 + 3 * p.data[4])) + position(p.data[2], 4);
-                r.line(x, 86, x + 2, 86 - amp, cyan);
-                r.line(x + 2, 86 - amp, x + 6, 86, orchid);
-            }
-        } else {
-            r.text(6, 3, machineNames[id], muted);
-        }
+        drumDiagram(r, Kind(id), p.data);
     }
 }
 }
