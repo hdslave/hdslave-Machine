@@ -3,7 +3,7 @@ set -eu
 cd "$(dirname "$0")/../.."
 mkdir -p tools/ui_demo/out
 docker --context colima-melodee run --rm --platform linux/arm64 \
-    -v "$PWD:/machine" -v "${MELODEE_SCREEN_TREE:-$PWD/../melodee-hdslave-screen}:/melodee:ro" \
+    -v "$PWD:/machine" -v "${MELODEE_SCREEN_TREE:-$PWD/../melodee-hdslave}:/melodee:ro" \
     -w /machine -e HOME=/tmp melodee-builder sh -ec '
     g++ -O3 -std=c++17 -mcpu=cortex-a55 -fno-exceptions -fno-rtti -fPIC -shared -fvisibility=hidden -Wall -Wextra \
         -I/melodee/build/deps/clap/include tools/ui_demo/demo.cpp ui/machine_ui.cpp ui/context.cpp \

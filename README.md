@@ -13,7 +13,7 @@ synth in the style of Elektron's machines:
 Every machine goes through the same voice section: a filter with its own envelope, drive, and an amp envelope. One
 LFO can reach the pitch, the filter, the level or any Data knob.
 
-In melodee-hdslave the Machine draws its own page on the MPC's screen (`ui/`, the screen extension). In any other
+In hdslaveOS the Machine draws its own page on the MPC's screen (`ui/`, the screen extension). In any other
 host, or in stock Melodee, it plays through the host's ordinary parameter pages.
 
 ## Machines
@@ -155,7 +155,7 @@ Buzz set VOLUME below 0 dB to stay there.
 
 ## The screen
 
-In melodee-hdslave, the Machine draws its own page through Melodee's screen extension (`src/melodee_screen.h`). The
+In hdslaveOS, the Machine draws its own page through Melodee's screen extension (`src/melodee_screen.h`). The
 page itself is `ui/`, built in when `ui/` is there (`make`; `make UI_DIR=...` for another copy). It shows:
 - the machine across the top;
 - the parameters as rows beneath it, grouped (MACHINE, FM ENV, SLOT, FILTER, AMP, LFO);
