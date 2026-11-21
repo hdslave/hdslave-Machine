@@ -1,6 +1,8 @@
 // The silent demo and preview fixtures share a deterministic parameter source.
 #pragma once
 #include "../../ui/machine_ui.h"
+#include "../../ui/kinds.h"
+#include "extended_data.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -8,8 +10,6 @@
 
 namespace fixture {
 using namespace machine::ui;
-inline constexpr const char *machines[] = {"FM TONE", "BD",       "SD",  "CP", "HH",
-                                           "CY/CB",   "EFM DRUM", "GND", "KIT"};
 inline constexpr const char *dataNames[8][8] = {
     {"ALGO", "RATIO C", "RATIO A", "RATIO B", "HARM", "DETUNE", "FDBK", "MIX"},
     {"TUNE", "DECAY", "SWEEP", "SWP TIME", "CLICK", "DRIVE", "FM", "NOISE"},
@@ -55,10 +55,10 @@ inline void format(Row &r, int machine) {
     const char *literal = nullptr;
     switch (r.role) {
     case Role::Machine:
-        literal = machines[notch(v, 9)];
+        literal = machineNames[notch(v, machineCount)];
         break;
     case Role::KitMachine:
-        literal = machines[1 + notch(v, 7)];
+        literal = machineNames[int(slotKinds[notch(v, slotKindCount)])];
         break;
     case Role::FilterType:
         literal = filters[notch(v, 3)];
@@ -71,6 +71,10 @@ inline void format(Row &r, int machine) {
         break;
     default:
         break;
+    }
+    if (r.role == Role::Data && machine >= int(Kind::Terrain)) {
+        extendedText(extendedControls[machine - int(Kind::Terrain)][r.data], v, machine, t, n);
+        return;
     }
     if (r.role == Role::Data && r.data == 0) {
         if (machine == 7)
@@ -109,17 +113,17 @@ inline float defaultValue(int id) {
         return commonDefault[id - 17];
     int k = (id - slotsBase) % slotStride, slot = (id - slotsBase) / slotStride;
     if (!k)
-        return (slot == 2 ? 1 : slot % 7) / 6.f;
+        return (slot == 2 ? 1 : slot % 7) / float(slotKindCount - 1);
     if (k <= 8)
         return dataDefault[k - 1];
     return k == 9 ? .8f : .5f;
 }
 template <class Reader> Model build(Reader read, int slot) {
     Model m{};
-    m.machine = uint8_t(notch(read(0), 9));
+    m.machine = uint8_t(notch(read(0), machineCount));
     m.kitSlot = uint8_t(std::clamp(slot, 0, 7));
     for (int i = 0; i < 8; ++i)
-        m.kitMachines[i] = uint8_t(1 + notch(read(slotsBase + i * slotStride), 7));
+        m.kitMachines[i] = uint8_t(slotKinds[notch(read(slotsBase + i * slotStride), slotKindCount)]);
     int machine = m.machine;
     bool kit = machine == 8;
     int drum = kit ? m.kitMachines[m.kitSlot] : machine;
@@ -141,20 +145,29 @@ template <class Reader> Model build(Reader read, int slot) {
         }
         format(r, drum);
     };
-    add(0, Group::Machine, Role::Machine, "MACHINE", 9);
+    add(0, Group::Machine, Role::Machine, "MACHINE", machineCount);
     int base = kit ? slotsBase + slotStride * m.kitSlot : 0;
     if (kit) {
         add(slotSelector, Group::Slot, Role::KitSlot, "SLOT", 8);
-        add(base, Group::Slot, Role::KitMachine, "MACH", 7);
+        add(base, Group::Slot, Role::KitMachine, "MACH", slotKindCount);
     }
     Group g = kit ? Group::Slot : Group::Machine;
-    for (int a = 0; a < 8 && dataNames[drum][a]; ++a) {
+    for (int a = 0; a < 8 && drum < 8 && dataNames[drum][a]; ++a) {
         int steps = 0;
         if (!a) {
             constexpr int counts[] = {8, 0, 0, 8, 2, 2, 0, 3};
             steps = counts[drum];
         }
         add(base + 1 + a, g, Role::Data, dataNames[drum][a], steps, drum == 0 && (a == 4 || a == 7), a);
+    }
+    if (drum >= int(Kind::Terrain)) {
+        const auto &controls = extendedControls[drum - int(Kind::Terrain)];
+        for (int a = 0; a < 10 && controls[a].name; ++a) {
+            const auto &c = controls[a];
+            add(base + 1 + a, g, Role::Data, c.name, c.steps,
+                c.unit == Unit::bipolar || c.unit == Unit::semis, a);
+            m.rows[m.rowCount - 1].initial = c.initial;
+        }
     }
     if (kit) {
         add(base + 9, g, Role::Level, "LEVEL");
@@ -182,7 +195,9 @@ inline Model model(int machine = 0, int slot = 2) {
     return build(
         [&](int id) {
             if (id == 0)
-                return machine / 8.f;
+                return machine / float(machineCount - 1);
+            if (machine >= int(Kind::Terrain) && id >= 1 && id <= 8)
+                return extendedControls[machine - int(Kind::Terrain)][id - 1].initial;
             return defaultValue(id);
         },
         slot);
@@ -192,7 +207,7 @@ inline Host host() {
 }
 inline void motion(Model &m, int frame, bool meters = true, bool scope = true) {
     for (int k = 0; k < 8 && meters; ++k)
-        m.voices[k] = (m.machine == 0 || m.machine == 8 || k == 0)
+        m.voices[k] = (m.machine == 0 || m.machine >= 8 || k == 0)
                           ? float(.50 + .48 * std::sin(frame * .62 + k * .92))
                           : 0.f;
     if (scope)

@@ -86,7 +86,10 @@ constexpr State states[] = {{"01-fm-algo", 0, 1},    {"02-ratio-edit", 0, 3}, {"
                             {"10-cy-cb", 5, 1},      {"11-efm", 6, 1},        {"12-gnd", 7, 1},
                             {"13-kit-slot-3", 8, 2}, {"14-shift", 0, 2},      {"15-pickup", 0, 2},
                             {"16-extremes", 7, 1},   {"17-coral", 0, 1},      {"18-mint", 0, 1},
-                            {"19-violet", 0, 1},     {"20-yellow", 0, 1},     {"21-fm-envelopes", 0, 11}};
+                            {"19-violet", 0, 1},     {"20-yellow", 0, 1},     {"21-fm-envelopes", 0, 11},
+                            {"22-terrain", 9, 1},    {"23-phase", 10, 2},     {"24-vox", 11, 2},
+                            {"25-modal", 12, 5},     {"26-pluck", 13, 5},     {"27-gendy", 14, 1},
+                            {"28-pulsar", 15, 6},    {"29-organ", 16, 3}};
 void configure(Rig &r, int i) {
     const State &s = states[i];
     r.key(Key::Wheel, s.cursor);
@@ -117,6 +120,12 @@ void configure(Rig &r, int i) {
     if (i >= 16 && i < 20) {
         constexpr uint32_t accents[] = {0xffff7a5c, 0xff46d9b0, 0xff9d8cff, 0xffe8d94a};
         r.h.accent = accents[i - 16];
+    }
+    if (s.machine == int(Kind::Gendy))
+        motion(r.m, 2);
+    if (s.machine == int(Kind::Pulsar)) {
+        r.m.rows[6].value = 3 / 7.f;
+        format(r.m.rows[6], s.machine);
     }
     r.settle();
 }
@@ -306,10 +315,10 @@ void test() {
     amp.paint();
     check(amp.frame != finite, "infinite decay paints");
     static_assert(art::bandWidth <= 70, "header print must leave the entire index cell clear");
-    for (int kind = 0; kind <= 8; ++kind)
-        for (int drum = 1; drum <= 7; ++drum) {
+    for (int kind = 0; kind < machineCount; ++kind)
+        for (Kind slotMachine : slotKinds) {
             Rig layout(kind);
-            layout.m.kitMachines[layout.m.kitSlot] = drum;
+            layout.m.kitMachines[layout.m.kitSlot] = uint8_t(slotMachine);
             layout.settle();
             for (int y = 2; y < 35; ++y)
                 for (int x = 196; x < 202; ++x)
@@ -322,7 +331,7 @@ void test() {
                     for (int x = 104 + k * 106; x < 110 + k * 106; ++x)
                         check(layout.frame[y * width + x] == 0xff100c18, "footer card gutters");
         }
-    for (int id = 0; id <= 8; ++id) {
+    for (int id = 0; id < machineCount; ++id) {
         Rig walk(id);
         walk.settle();
         unsigned baseline = allocs;
@@ -336,6 +345,66 @@ void test() {
         }
         check(allocs == baseline, "scroll and whole allocation-free");
     }
+    static_assert(std::size(art::icons) == machineCount);
+    for (int id = int(Kind::Terrain); id < machineCount; ++id) {
+        Rig voice(id);
+        voice.settle();
+        auto baseline = voice.frame;
+        voice.m.rows[id == int(Kind::Terrain) ? 2 : 1].value = .96f;
+        // Test a control that directly shapes this voice's machine diagram.
+        if (id == int(Kind::Vox) || id == int(Kind::Modal) || id == int(Kind::Pluck))
+            voice.m.rows[5].value = .85f;
+        if (id == int(Kind::Pulsar))
+            voice.m.rows[6].value = .57f;
+        if (id == int(Kind::Gendy))
+            motion(voice.m, 2);
+        if (id == int(Kind::Organ))
+            voice.m.rows[3].value = 0;
+        voice.paint();
+        bool changed = false;
+        for (int y = 65; y < 149; ++y)
+            for (int x = 202; x < 316; ++x)
+                changed |= baseline[y * width + x] != voice.frame[y * width + x];
+        check(changed, "voice control changes its diagram");
+        auto partial = voice.frame;
+        voice.paint(true);
+        check(partial == voice.frame, "voice partial matches whole");
+    }
+    for (int k = 0; k < slotKindCount; ++k) {
+        Rig slot;
+        slot.m = build(
+            [&](int id) {
+                if (id == 0)
+                    return float(Kind::Kit) / (machineCount - 1);
+                if (id == slotsBase)
+                    return float(k) / (slotKindCount - 1);
+                return defaultValue(id);
+            },
+            0);
+        slot.key(Key::Wheel, 3);
+        slot.settle();
+        check(slot.m.kitMachines[0] == uint8_t(slotKinds[k]), "KIT choice maps to stored machine id");
+        check(std::strcmp(slot.m.rows[2].text, machineNames[int(slotKinds[k])]) == 0, "KIT machine name");
+        check(slot.m.rows[3].id == 101 && slot.m.rows[3].group == Group::Slot, "KIT data ids and group");
+        Rig single{int(slotKinds[k])};
+        single.settle();
+        for (int i = 0; i < single.m.rowCount; ++i)
+            if (single.m.rows[i].role == Role::Data)
+                single.m.rows[i].value = slot.m.rows[3 + single.m.rows[i].data].value;
+        single.paint();
+        for (int y = 52; y < 149; ++y)
+            for (int x = 202; x < 316; ++x)
+                check(slot.frame[y * width + x] == single.frame[y * width + x],
+                      "slot and standalone diagram agree");
+    }
+    Rig gendy{int(Kind::Gendy)};
+    gendy.settle();
+    auto silent = gendy.frame;
+    motion(gendy.m, 5);
+    gendy.paint();
+    auto moved = difference(gendy.frame, silent);
+    check(moved.n > 0 && moved.n < 6000, "breakpoint update pixel budget");
+    std::printf("breakpoint trace, scope and meters=%d pixels\n", moved.n);
     std::puts("input, dirty/full/stride, eight graphs, allocation checks passed; idle=0 pixels");
 }
 void bench() {
@@ -358,6 +427,14 @@ void bench() {
         constexpr const char *names[] = {"full", "cursor", "meter", "idle"};
         std::printf("%-7s %.6f ms/paint (%u changed)\n", names[mode], ms, painted);
     }
+    Rig terrain{int(Kind::Terrain)};
+    terrain.settle();
+    auto start = std::chrono::steady_clock::now();
+    for (int i = 0; i < rounds; ++i)
+        terrain.paint(true);
+    double terrainMs =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count() / rounds;
+    std::printf("terrain full %.6f ms/paint\n", terrainMs);
     constexpr size_t bytes = sizeof(font::body) + sizeof(font::bodyWidth) + sizeof(font::title) +
                              sizeof(font::titleWidth) + sizeof(art::inks) + sizeof(art::icons) +
                              sizeof(art::portraits) + sizeof(art::band);
@@ -403,6 +480,6 @@ int main(int argc, char **argv) {
         const char *names[] = {"sweep", "glide", "meters", "scope", "voices-scope"};
         for (int i = 0; i < 5; ++i)
             animation(names[i], rendering ? &dir : nullptr, i);
-        std::puts("21 states passed");
+        std::printf("%zu preview states passed\n", std::size(states));
     }
 }

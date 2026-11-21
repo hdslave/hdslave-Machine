@@ -11,4 +11,7 @@ docker --context colima-melodee run --rm --platform linux/arm64 \
     MELODEE_PLUGIN_STAGE=/tmp/stage /melodee/build/melodee --melodee-plugin-screen \
         /machine/tools/ui_demo/out/MachineUiDemo.clap /machine/assets/previews/host \
         png:1 wheel:3 png:2 push png:3 wheel:2 png:4 push plus png:5 k1:90 png:6 stage png:7
+    MELODEE_PLUGIN_STAGE=/tmp/stage-more /melodee/build/melodee --melodee-plugin-screen \
+        /machine/tools/ui_demo/out/MachineUiDemo.clap /machine/assets/previews/host \
+        push wheel:9 wait:2200 png:terrain push wheel:7 wait:2200 png:organ
     '

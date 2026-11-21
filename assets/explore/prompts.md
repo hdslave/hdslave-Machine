@@ -25,3 +25,7 @@ A wide 3:1 abstract panoramic texture for a tiny synthesizer marquee: black grou
 The second take asked for one connected family of sound silhouettes in lavender enamel on black, with a cold highlight and a violet underside. The nine approved glyphs are in acoustic-glyphs.png. Keep the cyan slit and black counters readable when reduced to thirty pixels. The more literal four-icon trial is archived separately.
 
 The selected header followed a three-part original print study. Bend a checker grid into a shallow well around a single inked violet sphere, pinch a set of magenta contour bands, and tension a thin wire membrane. Keep each print horizontal, static, and free of lettering. The checker well was selected after comparison in the FM TONE header at native size. Earlier ribbon, aperture and angular trials are kept as exploration masters.
+
+## Extended acoustic glyphs
+
+Generate a four-column, two-row atlas of original sound emblems, using the approved acoustic glyphs as the material reference. Each shape has a lavender face, a cold rim and a violet underside. In reading order use folded terrain contours, a hinged phase ramp, vowel pulses, struck modes, a deflected string, an uneven breakpoint polygon, a diminishing pulse train and stepped drawbars. Leave black space around each silhouette for a 30 × 30 reduction. The master is extended-acoustic-glyphs.png.

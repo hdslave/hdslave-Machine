@@ -33,12 +33,12 @@ struct Row {           // one parameter, as the list shows it
 };
 
 struct Model {         // what the engine says, each paint
-    uint8_t machine;   // 0 FM TONE, 1 BD, 2 SD, 3 CP, 4 HH, 5 CY/CB, 6 EFM DRUM, 7 GND, 8 KIT
+    uint8_t machine;   // stable machine number, in ui/kinds.h order
     uint8_t rowCount;
     Row rows[40];
     float voices[8];        // each voice's level now (FM: its 8 voices; a drum: [0]; KIT: each slot), 0..1
     uint8_t kitSlot;        // KIT: the slot shown, 0-7
-    uint8_t kitMachines[8]; // KIT: each slot's machine, 1-7
+    uint8_t kitMachines[8]; // KIT: a machine number from slotKinds in ui/kinds.h
     float scope[128];       // the latest output, -1..1, oldest first; all 0 when not given
 };
 

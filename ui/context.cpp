@@ -1,6 +1,7 @@
 // Copyright (C) 2026 hdslave
 #include "raster.h"
 #include "art.h"
+#include "voice_plots.h"
 
 namespace machine::ui::draw {
 void emblem(Raster &r, int x, int y, int machine) {
@@ -195,9 +196,13 @@ void context(Raster &r, const Model &m, Group group) {
     } else {
         int id = machineId(m);
         if (id == 8)
-            id = std::clamp<int>(m.kitMachines[slotId(m)], 1, 7);
+            id = slotKind(m.kitMachines[slotId(m)]);
         if (id == 0) {
             algorithm(r, position(p.data[0], 7));
+            return;
+        }
+        if (id >= int(Kind::Terrain)) {
+            voices::panel(r, id, p.data, m);
             return;
         }
         // The sound portrait and its live parameter diagram have distinct plates.
@@ -250,7 +255,7 @@ void context(Raster &r, const Model &m, Group group) {
                 r.line(x + 2, 86 - amp, x + 6, 86, orchid);
             }
         } else {
-            r.text(6, 3, names[id], muted);
+            r.text(6, 3, machineNames[id], muted);
         }
     }
 }

@@ -42,7 +42,7 @@ Demo &demo(const clap_plugin_t *p) {
 }
 int steps(clap_id id) {
     if (id == 0)
-        return 9;
+        return machineCount;
     if (id == 19)
         return 3;
     if (id == 31)
@@ -50,7 +50,7 @@ int steps(clap_id id) {
     if (id == 32)
         return 11;
     if (id >= slotsBase && (id - slotsBase) % slotStride == 0)
-        return 7;
+        return slotKindCount;
     return 0;
 }
 bool bipolar(clap_id id) {
@@ -113,7 +113,7 @@ bool valueText(const clap_plugin_t *p, clap_id id, double v, char *out, uint32_t
             if (key == id)
                 return norm(id, v);
             if (slotField && key == 0)
-                return 1.f;
+                return float(Kind::Kit) / (machineCount-1);
             return d.value[key].load();
         },
         slot);
@@ -126,13 +126,13 @@ bool valueText(const clap_plugin_t *p, clap_id id, double v, char *out, uint32_t
     return true;
 }
 void strike(Demo &d, int key) {
-    int machine = notch(d.value[0].load(), 9), voice = 0;
+    int machine = notch(d.value[0].load(), machineCount), voice = 0;
     if (machine == 8) {
         if (key < 36 || key > 43)
             return;
         voice = key - 36;
         d.slot.store(voice);
-    } else if (machine == 0)
+    } else if (machine == 0 || machine >= int(Kind::Terrain))
         voice = key & 7;
     d.strikes[voice].fetch_add(1);
     d.repaint();

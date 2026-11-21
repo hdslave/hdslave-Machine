@@ -40,11 +40,11 @@ void heading(Raster &r, int machine, int slot, int drum) {
     r.box(0, 0, r.w, r.h, black);
     char title[24]{};
     if (machine == 8)
-        std::snprintf(title, sizeof title, "KIT %c %d %s", 127, slot + 1, names[drum]);
+        std::snprintf(title, sizeof title, "KIT %c %d %s", 127, slot + 1, machineNames[drum]);
     else
-        std::snprintf(title, sizeof title, "%s", names[machine]);
+        std::snprintf(title, sizeof title, "%s", machineNames[machine]);
     bool stacked = machine == 8 && textWidth(title, 24, true) > headW - 46;
-    const char *big = stacked ? names[drum] : title;
+    const char *big = stacked ? machineNames[drum] : title;
     int ty = stacked ? 15 : 9;
     emblem(r, 4, 2, machine);
     if (stacked) {
@@ -66,8 +66,8 @@ void meters(Raster &r, const Model &m, const Host &h) {
             if (ink)
                 r.dot(markX + x, y, art::inks[ink]);
         }
-    char number[] = "01/09";
-    number[1] = char('1' + machineId(m));
+    char number[8];
+    std::snprintf(number, sizeof number, "%02u/%02u", unsigned(machineId(m) + 1), unsigned(machineCount));
     r.text(r.w - 36, 7, number, paper);
     r.text(2, 24, machineId(m) == 8 ? "SLOTS" : "VOICE", muted);
     if (h.playing)
@@ -240,7 +240,7 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
     if (!pixels || stride < width)
         return false;
     const bool full = whole || !seen_;
-    const int machine = machineId(m), slot = slotId(m), drum = std::clamp<int>(m.kitMachines[slot], 1, 7);
+    const int machine = machineId(m), slot = slotId(m), drum = slotKind(m.kitMachines[slot]);
     const bool switched = seen_ && machine != machineId(previous_);
     if (controlMachine_ != machine) {
         editing_ = false;
@@ -251,7 +251,7 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
     if (switched) {
         fromMachine_ = machineId(previous_);
         fromSlot_ = slotId(previous_);
-        fromKitMachine_ = std::clamp<int>(previous_.kitMachines[fromSlot_], 1, 7);
+        fromKitMachine_ = slotKind(previous_.kitMachines[fromSlot_]);
         sweepStart_ = h.nowMs;
     }
     int phase = switched || sweepFrame_ < 16
@@ -339,6 +339,9 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
             (m.rows[i].role == Role::AmpDecay &&
              std::strncmp(m.rows[i].text, previous_.rows[i].text, sizeof m.rows[i].text)))
             plotDirty = true;
+    if ((group == Group::Machine || group == Group::Slot) && machine == int(Kind::Gendy) &&
+        std::memcmp(m.scope, previous_.scope, sizeof m.scope))
+        plotDirty = true;
     if (plotDirty)
         tile(contextX, listY, contextW, 97, [&](Raster &r) { context(r, m, group); });
     bool live = sounding(m);

@@ -26,7 +26,9 @@ def scale(im,n):
     return im.resize((im.width*n,im.height*n),Image.Resampling.NEAREST)
 labels_list=['FM tone / algorithm','FM tone / ratio edit','Filter response','Amplitude envelope','LFO waveform',
     'BD / playing','SD / snare','CP / bursts','HH / metal tones','CY / CB','EFM drum','GND / source',
-    'Kit / slot 3','Shift / controls','K2 / pickup','Value extremes','Track / coral','Track / mint','Track / violet','Track / yellow','FM modulation envelopes']
+    'Kit / slot 3','Shift / controls','K2 / pickup','Value extremes','Track / coral','Track / mint','Track / violet','Track / yellow','FM modulation envelopes',
+    'Terrain / orbit map','Phase / bend','Vox / formants','Modal / resonances','Pluck / pick point',
+    'Gendy / breakpoints','Pulsar / mask','Organ / drawbars']
 states=sorted(frames.glob('[0-9][0-9]-*.ppm'))
 assert len(states)==len(labels_list)
 sheet=Image.new('RGB',(24+3*664,112+((len(states)+2)//3)*536),(17,14,24))
@@ -71,3 +73,10 @@ for i,(name,label) in enumerate((('checker-well','Checker well'),('contour-pinch
     proof.paste(shown,(i*320,0))
     draw.text((i*320+5,242),label,font=small,fill='#dac9df')
 proof.save(root/'assets/explore/header-print-proofs.png')
+
+
+added=Image.new('RGB',(3*320,3*240),(16,12,24))
+for i,path in enumerate(states[21:]):
+    im=Image.open(gallery/'states'/path.stem/'melodee.png')
+    added.paste(im,(i%3*320,i//3*240))
+added.save(gallery/'new-machines.png')

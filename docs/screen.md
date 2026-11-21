@@ -33,3 +33,9 @@ All 21 preview hashes matched on Mac and Linux arm64. Mean elapsed milliseconds 
 The initial machine change replaced 4,798 pixels across the header and rows. Subsequent sweep frames changed at most 218 pixels in the header. Peak counts were 5,513 for a cursor move, 35 for meters, 213 for scope and 247 for meters with scope. Idle touched zero pixels. Tests compare partial paints to full redraws, check stride padding, check header and card clearances, and count allocations around controls and painting.
 
 Actual panel contrast, SPI transfer time, physical control feel and drawing alongside the running audio engine still need a test on the MPC.
+
+## Extended voices
+
+The 17-machine edition appends TERRAIN, PHASE, VOX, MODAL, PLUCK, GENDY, PULSAR and ORGAN in engine order. Each has a matching 30-pixel emblem and a machine-specific panel. Turn X or Y to move the orbit over TERRAIN's mesh, D or V to change the phase bend, or POSITION to change the modal strike or string pick. VOX separates the vowel markers from the pulse train. GENDY samples the scope at its breakpoint count. PULSAR shows the pulse envelope above eight mask cells, and ORGAN draws each drawbar at its current detent. MODAL, PLUCK, VOX and PULSAR also work as KIT slots. Machine numbers and CLAP IDs already in use retain their meanings. [New voice pages](../assets/previews/new-machines.png)
+
+All 29 reference states passed on Mac and Linux arm64. The terrain full redraw averaged 0.0250 ms on Mac and 0.0337 ms in the Cortex-A55-targeted VM build. The combined GENDY breakpoint, scope and meter update changed 660 pixels. Emblems, fonts, portraits and header use 49,512 bytes in total.

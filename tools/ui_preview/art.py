@@ -49,6 +49,15 @@ for i,name in enumerate(names):
     if 1<=i<=7:
         fit(tile,(68,44)).save(dest/(name+'-portrait.png'))
 
+extended_names = "terrain phase vox modal pluck gendy pulsar organ".split()
+extended_atlas = Image.open('assets/explore/extended-acoustic-glyphs.png').convert('RGB')
+for i, name in enumerate(extended_names):
+    col, row = i % 4, i // 4
+    w, h = extended_atlas.size
+    cell = extended_atlas.crop((col*w//4, row*h//2, (col+1)*w//4, (row+1)*h//2))
+    bounds = cell.convert('L').point(lambda p: 255 if p > 29 else 0).getbbox()
+    fit(cell.crop(bounds), (30, 30)).save(dest/(name+'.png'))
+
 source=Image.open('assets/explore/acid-print-studies.png').convert('RGB')
 # Sample the inner edge of each print to keep the adjacent ink out of its crop.
 for i, name in enumerate(('checker-well','contour-pinch','wire-membrane')):
@@ -70,7 +79,7 @@ Path('ui/art.h').write_text(
     '#pragma once\n#include <cstdint>\nnamespace machine::ui::art {\n'
     'inline constexpr int size=30, bandWidth=68, bandHeight=21, portraitW=68, portraitH=44;\n'
     'inline constexpr uint32_t inks[]={'+inks+'};\n'
-    'inline constexpr uint8_t icons[9][size*size]={\n'+',\n'.join(map(dump,names))+'};\n'
+    'inline constexpr uint8_t icons[][size*size]={\n'+',\n'.join(map(dump,names+extended_names))+'};\n'
     'inline constexpr uint8_t portraits[7][portraitW*portraitH]={\n'
     +',\n'.join(dump(n+'-portrait') for n in names[1:8])+'};\n'
     'inline constexpr uint8_t band[]='+dump('checker-well')+';\n}\n')

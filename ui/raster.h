@@ -1,6 +1,7 @@
 // Copyright (C) 2026 hdslave
 #pragma once
 #include "machine_ui.h"
+#include "kinds.h"
 #include "fonts.h"
 #include <algorithm>
 #include <cmath>
@@ -25,12 +26,11 @@ inline int index(int x, int last) {
     return std::clamp(x, 0, std::max(0, last));
 }
 inline int machineId(const Model &m) {
-    return index(m.machine, 8);
+    return index(m.machine, machineCount - 1);
 }
 inline int slotId(const Model &m) {
     return index(m.kitSlot, 7);
 }
-inline const char *names[] = {"FM TONE", "BD", "SD", "CP", "HH", "CY/CB", "EFM DRUM", "GND", "KIT"};
 inline const char *groups[] = {"MACHINE", "SLOT", "FILTER", "AMP", "LFO", "FM ENV"};
 inline Ink mix(Ink a, Ink b, int weight) {
     Ink c = 0xff000000;
