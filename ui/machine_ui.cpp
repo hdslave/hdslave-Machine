@@ -7,8 +7,8 @@ namespace machine::ui {
 using namespace draw;
 namespace {
 constexpr int listY = 52, rowH = 15, rowsVisible = 8, listW = 196, contextX = 202, contextW = 114;
-constexpr int headW = listW, headH = 35, cardY = 176;
-constexpr int printTopGap = 2, printTileH = printTopGap + art::bandHeight;
+constexpr int headW = contextX, headH = 35, cardY = 176;
+constexpr int bannerY = placeBarRows + headH + 1, plotOffset = listY - bannerY, plotHeight = 97;
 constexpr uint32_t none = 0xffffffffu;
 int boundedCursor(int cursor, const Model &m) {
     return index(cursor, count(m) - 1);
@@ -37,59 +37,64 @@ void bar(Raster &r, int x, int y, int w, const Row &row, Ink ink) {
     if (row.bipolar)
         r.dot(x + origin, y - 1, paper);
 }
-void heading(Raster &r, int machine, int slot, int drum) {
-    r.box(0, 0, r.w, r.h, black);
-    char title[24]{};
-    if (machine == 8)
-        std::snprintf(title, sizeof title, "KIT %c %d %s", 127, slot + 1, machineNames[drum]);
-    else
-        std::snprintf(title, sizeof title, "%s", machineNames[machine]);
-    bool stacked = machine == 8 && textWidth(title, 24, true) > headW - 46;
-    const char *big = stacked ? machineNames[drum] : title;
-    int ty = stacked ? 15 : 9;
-    emblem(r, 4, 2, machine);
-    if (stacked) {
-        char slotName[] = "KIT / 1";
-        slotName[6] = char('1' + slot);
-        r.text(42, 1, slotName, muted);
-    }
-    r.text(41, ty, big, 0xff3b909e, 24, true);
-    r.text(43, ty, big, 0xffa5529e, 24, true);
-    r.text(42, ty, big, paper, 24, true);
-    r.box(0, r.h - 1, r.w, 1, violet);
+struct VoiceLabel {
+    const char *title;
+    const char *description;
+};
+constexpr VoiceLabel labels[] = {{"FM TONE", "4-OPERATOR FM"},     {"BASS DRUM", "BD / PITCH SWEEP"},
+                                 {"SNARE", "SD / BODY + NOISE"},   {"CLAP", "CP / NOISE BURSTS"},
+                                 {"HI-HAT", "HH / METAL + NOISE"}, {"CYMBAL", "6 METAL OSCILLATORS"},
+                                 {"FM DRUM", "EFM / PITCHED HIT"}, {"GROUND", "SINE, NOISE, IMPULSE"},
+                                 {"KIT", "8 DRUM SLOTS"},          {"TERRAIN", "ORBITING A SURFACE"},
+                                 {"PHASE", "VECTOR PHASESHAPER"},  {"VOX", "VOWEL SYNTH"},
+                                 {"MODAL", "STRUCK RESONATOR"},    {"PLUCK", "PLUCKED STRING"},
+                                 {"GENDY", "RANDOM-WALK SYNTH"},   {"PULSAR", "GATED PULSE TRAIN"},
+                                 {"ORGAN", "8 DRAWBARS"},          {"KICK", "PULSE RESONATOR"}};
+static_assert(std::size(labels) == machineCount && std::size(art::banners) == machineCount);
+
+bool cowbell(const Model &m, int voice) {
+    if (voice == int(Kind::CyCb))
+        for (int i = 0; i < count(m); ++i)
+            if (m.rows[i].role == Role::Data && m.rows[i].data == 0)
+                return m.rows[i].value >= .5f;
+    return false;
 }
-static_assert(std::size(art::banners) == machineCount);
-void machinePrint(Raster &r, int machine) {
+
+void heading(Raster &r, int machine, int slot, int drum, bool bell) {
+    const bool kit = machine == int(Kind::Kit);
+    const int voice = kit ? drum : machine;
+    const VoiceLabel label = bell ? VoiceLabel{"COWBELL", "TWIN SQUARE WAVES"} : labels[voice];
+    char slotLabel[24];
+    if (kit)
+        std::snprintf(slotLabel, sizeof slotLabel, "KIT %02d / %s", slot + 1, machineNames[voice]);
     r.box(0, 0, r.w, r.h, black);
-    constexpr int markX = 2;
-    for (int y = 0; y < art::bandHeight; ++y)
-        for (int x = 0; x < art::bandWidth; ++x) {
-            auto ink = art::banners[machine][y * art::bandWidth + x];
-            if (ink)
-                r.dot(markX + x, printTopGap + y, art::inks[ink]);
-        }
-    char number[8];
-    std::snprintf(number, sizeof number, "%02u/%02u", unsigned(machine + 1), unsigned(machineCount));
-    r.text(r.w - 36, 7, number, paper);
+    emblem(r, 5, 2, voice);
+    r.text(42, 3, label.title, 0xff32616b, 24, true);
+    r.text(44, 3, label.title, 0xff804485, 24, true);
+    r.text(43, 3, label.title, paper, 24, true);
+    r.text(43, 22, kit ? slotLabel : label.description, muted);
+    r.box(4, r.h - 1, r.w - 4, 1, violet);
 }
+
 void meters(Raster &r, const Model &m, const Host &h) {
     r.box(0, 0, r.w, r.h, black);
-    const int bottomLevel = r.h - 5;
-    r.text(2, bottomLevel - 6, machineId(m) == 8 ? "SLOTS" : "VOICE", muted);
+    const bool kit = machineId(m) == int(Kind::Kit);
+    r.text(3, 2, kit ? "SLOTS" : "VOICE", muted);
     if (h.playing)
-        r.box(40, bottomLevel - 4, 2, 2, cyan);
+        r.box(43, 5, 2, 2, cyan);
     for (int k = 0; k < 8; ++k) {
-        int x = 48 + k * 8, level = position(m.voices[k], 4);
+        int x = 51 + k * 8, level = position(m.voices[k], 4);
         for (int i = 0; i < 4; ++i)
-            r.box(x, bottomLevel - i * 2, 5, 1, i < level ? cyan : rule);
-        if (machineId(m) == 8 && k == slotId(m))
-            r.box(x, bottomLevel + 2, 5, 1, paper);
+            r.box(x, 9 - i * 2, 6, 1, i < level ? cyan : rule);
+        if (kit && k == slotId(m))
+            r.box(x, 11, 6, 1, paper);
     }
     r.box(0, r.h - 1, r.w, 1, violet);
 }
-void tabs(Raster &r, int machine, Group active) {
+
+void tabs(Raster &r, int machine, Group active, int originX) {
     r.box(0, 0, r.w, r.h, black);
-    int x = 4;
+    int x = 4 - originX;
     for (int g : {0, 5, 1, 2, 3, 4}) {
         if ((g == 1 && machine != 8) || (g == 5 && machine != 0))
             continue;
@@ -103,6 +108,94 @@ void tabs(Raster &r, int machine, Group active) {
         x += w + 3;
     }
 }
+// Bounds of the lettering in plot coordinates. Ink reaches full strength nine
+// pixels past a label horizontally or seven pixels past it vertically.
+struct LabelBounds {
+    int left = contextW, right = -1, top = art::bandHeight, bottom = -1;
+    void include(int x, int y) {
+        left = std::min(left, x);
+        right = std::max(right, x);
+        top = std::min(top, y);
+        bottom = std::max(bottom, y);
+    }
+    float exposure(int x, int y) const {
+        int dx = std::max({left - x, 0, x - right});
+        int dy = std::max({top - y, 0, y - bottom});
+        if (right < left || dx >= 9 || dy >= 7)
+            return 1.f;
+        float t = unit(std::sqrt(dx * dx / 81.f + dy * dy / 49.f));
+        return t * t * (3.f - 2.f * t);
+    }
+};
+
+void diagram(Raster &r, const Model &m, Group group) {
+    // One tile owns both sides of the tab/plot boundary. Partial paints always
+    // blend onto clean ink, so repeatedly moving a control cannot build up colour.
+    Raster nav(r.buf, r.w, plotOffset);
+    tabs(nav, machineId(m), group, contextX);
+    Raster plot(r.buf + plotOffset * r.w, r.w, plotHeight);
+    context(plot, m, group);
+    LabelBounds caption, mode, sublabel;
+    for (int y = 0; y < art::bandHeight; ++y) {
+        for (int x = 0; x < r.w; ++x) {
+            Ink ink = plot.buf[y * r.w + x];
+            if (ink == muted || ink == valueInk)
+                (y < 12 ? caption : sublabel).include(x, y);
+            if (y < 12 && ink == orchid)
+                mode.include(x, y);
+        }
+    }
+    const auto *print = art::banners[machineId(m)];
+    for (int y = 0; y < art::bandHeight; ++y) {
+        Ink *line = r.buf + y * r.w;
+        int start = r.w - art::bandWidth;
+        if (y < plotOffset) {
+            // Allow two clear pixels after the rightmost tab on this scanline.
+            for (int x = r.w - 1; x >= start - 2; --x)
+                if (line[x] != black) {
+                    start = x + 3;
+                    break;
+                }
+        }
+        int plotY = y - plotOffset;
+        for (int x = start; x < r.w; ++x) {
+            int col = x - (r.w - art::bandWidth);
+            auto index = print[y * art::bandWidth + col];
+            if (!index)
+                continue;
+            Ink under = line[x];
+            if (under != black && under != panel && under != halftoneInk && under != rule && under != violet)
+                continue;
+            float open =
+                std::min({caption.exposure(x, plotY), mode.exposure(x, plotY), sublabel.exposure(x, plotY)});
+            float feather = unit((col + 1) / 6.f);
+            int weight = int(std::lround(feather * (32.f + 224.f * open)));
+            line[x] = mix(under, art::inks[index], weight);
+        }
+    }
+}
+
+void outputScope(Raster &r, const Model &m) {
+    r.box(0, 0, r.w, r.h, panel);
+    r.text(5, 6, "OUT", muted);
+    constexpr int left = 32, baseline = 11, samples = 78;
+    r.box(left, baseline, samples, 1, rule);
+    for (int x = 0; x < samples; x += 12)
+        r.dot(left + x, baseline + 2, rule);
+    if (!sounding(m))
+        return;
+    int last = baseline;
+    for (int x = 0; x < samples; ++x) {
+        // The host can report audio above full scale. Keep it inside the scope.
+        float sample = m.scope[x * 127 / (samples - 1)];
+        sample = std::isfinite(sample) ? std::clamp(sample, -1.f, 1.f) : 0.f;
+        int y = baseline - int(std::lround(7 * sample));
+        if (x)
+            r.line(left + x - 1, last, left + x, y, cyan);
+        last = y;
+    }
+}
+
 void listRow(Raster &r, const Row *row, bool focus, bool edit, int rail) {
     r.box(0, 0, r.w, r.h, black);
     if (!row)
@@ -273,10 +366,12 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
     const int machine = machineId(m), slot = slotId(m), drum = slotKind(m.kitMachines[slot]);
     const bool switched = seen_ && machine != machineId(previous_);
     syncControls(m);
+    const bool bell = cowbell(m, machine == int(Kind::Kit) ? drum : machine);
     if (switched) {
         fromMachine_ = machineId(previous_);
         fromSlot_ = slotId(previous_);
         fromKitMachine_ = slotKind(previous_.kitMachines[fromSlot_]);
+        fromBell_ = lastBell_;
         sweepStart_ = h.nowMs;
     }
     int phase = switched || sweepFrame_ < 16
@@ -303,7 +398,7 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
         rail = target + (glideFrom_ - target) * (96 - t) * (96 - t) / (96 * 96);
     }
     // Repaint a bounded tile, then copy just differing pixels. No transient erasures reach the panel.
-    Ink scratch[contextW * 97]; // The largest tile is the context plot.
+    Ink scratch[contextW * (plotOffset + plotHeight)];
     bool changed = full;
     if (full)
         for (int y = 0; y < height; ++y)
@@ -324,30 +419,34 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
             }
         }
     };
-    if (full || switched || phase != sweepFrame_ ||
+    if (full || switched || phase != sweepFrame_ || bell != lastBell_ ||
         (machine == 8 && (slot != slotId(previous_) || drum != previous_.kitMachines[slot])))
         tile(0, placeBarRows, headW, headH, [&](Raster &r) {
-            heading(r, machine, slot, drum);
+            heading(r, machine, slot, drum, bell);
             if (phase < 16) {
                 int edge = headW * phase / 16;
                 r.left = edge;
-                heading(r, fromMachine_, fromSlot_, fromKitMachine_);
+                heading(r, fromMachine_, fromSlot_, fromKitMachine_, fromBell_);
                 r.box(edge, 2, 1, r.h - 4, orchid);
             }
         });
     if (full || switched)
-        tile(contextX, placeBarRows, contextW, printTileH, [&](Raster &r) { machinePrint(r, machine); });
+        tile(contextX, placeBarRows, contextW, 20, [&](Raster &r) {
+            r.box(0, 0, r.w, r.h, black);
+            char number[8];
+            std::snprintf(number, sizeof number, "%02d/%02d", machine + 1, machineCount);
+            r.text(78, 4, number, paper);
+        });
     bool meterDirty = full || switched || h.playing != previousHost_.playing || slot != slotId(previous_);
     for (int i = 0; i < 8; ++i)
         meterDirty |= position(m.voices[i], 4) != position(previous_.voices[i], 4);
     if (meterDirty)
-        tile(contextX, placeBarRows + printTileH, contextW, headH - printTileH,
-             [&](Raster &r) { meters(r, m, h); });
+        tile(contextX, placeBarRows + 20, contextW, headH - 20, [&](Raster &r) { meters(r, m, h); });
     auto group = count(m) ? m.rows[cursor_].group : Group::Machine;
     auto oldGroup = lastCursor_ >= 0 && lastCursor_ < count(previous_) ? previous_.rows[lastCursor_].group
                                                                        : Group::Machine;
     if (full || switched || group != oldGroup)
-        tile(0, 38, width, 13, [&](Raster &r) { tabs(r, machine, group); });
+        tile(0, bannerY, contextX, 13, [&](Raster &r) { tabs(r, machine, group, 0); });
     for (int j = 0; j < rowsVisible; ++j) {
         int i = top_ + j, old = lastTop_ + j, y = j * rowH;
         const Row *row = i < count(m) ? m.rows + i : nullptr;
@@ -372,24 +471,11 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
         std::memcmp(m.scope, previous_.scope, sizeof m.scope))
         plotDirty = true;
     if (plotDirty)
-        tile(contextX, listY, contextW, 97, [&](Raster &r) { context(r, m, group); });
+        tile(contextX, bannerY, contextW, plotOffset + plotHeight, [&](Raster &r) { diagram(r, m, group); });
     bool live = sounding(m);
     if (full || live != sounding(previous_) ||
         (live && std::memcmp(m.scope, previous_.scope, sizeof m.scope)))
-        tile(contextX, listY + 97, contextW, 23, [&](Raster &r) {
-            r.box(0, 0, r.w, r.h, panel);
-            if (!live)
-                return;
-            r.box(5, 11, r.w - 10, 1, violet);
-            int last = 11;
-            for (int x = 0; x < r.w - 10; ++x) {
-                float sample = m.scope[x * 127 / (r.w - 11)];
-                int v = 11 - (position((sample + 1.f) * 0.5f, 18) - 9);
-                if (x)
-                    r.line(x + 4, last, x + 5, v, cyan);
-                last = v;
-            }
-        });
+        tile(contextX, listY + plotHeight, contextW, 23, [&](Raster &r) { outputScope(r, m); });
     for (int k = 0; k < 3; ++k) {
         int i = cursor_ + k;
         const Row *row = i < count(m) ? m.rows + i : nullptr;
@@ -401,6 +487,7 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
     }
     if (full)
         tile(0, 210, width, 5, foot);
+    lastBell_ = bell;
     previous_ = m;
     previousHost_ = h;
     lastCursor_ = cursor_;

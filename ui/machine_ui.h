@@ -75,6 +75,7 @@ private:
     int fromMachine_ = 0, fromSlot_ = 0, fromKitMachine_ = 1;
     int sweepFrame_ = 16, glideY_ = -1, glideFrom_ = 0;
     uint64_t sweepStart_ = 0, glideStart_ = 0;
+    bool fromBell_ = false, lastBell_ = false;
     bool seen_ = false, editing_ = false, lastEditing_ = false;
     Model previous_{};
     Host previousHost_{};

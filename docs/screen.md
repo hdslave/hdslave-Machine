@@ -1,6 +1,6 @@
 # Machine screen
 
-Each of the 18 machines pairs a lavender sound emblem with a 68 × 21 pixel print. FM TONE pairs a sheared halo with the checker well, GENDY pairs a breakpoint loop with folded graph paper, and ORGAN lines up its pipes beside the drawbars emblem. The print sits between the name and the machine number, with two clear pixel rows below the timeline’s beat tick and one above the voice meters. In KIT it identifies the kit while the title and diagram follow the active slot. The first seven drums also have a larger portrait in the diagram panel. [All 18 machine headers](../assets/previews/machine-prints-2x.png)
+One emblem sits beside the voice name and its short description. The machine number and eight voice meters occupy the right end of the header. Each machine's 68 × 21 pixel print begins one clear pixel below the divider (canvas x=248, y=38). It fades beneath the section label and mode value. The side diagram shows the selected group, with the output trace at its base. In KIT, the emblem, title and diagram follow the selected slot. The header shows its slot number and voice code, the meters show slot activity, and the print identifies KIT. [All 18 headers and prints](../assets/previews/machine-prints-2x.png)
 
 Of the three initial directions, Phase Fold left the most usable space around the values. Its original screen is preserved. The finished layout keeps its eight scrolling rows and gives the sound diagrams and three knob cards a six-pixel gutter. [Three directions](../assets/explore/directions.png) · [First take](../assets/explore/phase-fold-take-1.png) · [Header studies at native size](../assets/explore/header-print-proofs.png) · [Panel contact sheet](../assets/previews/contact-sheet-2x.png)
 
@@ -34,20 +34,18 @@ KICK follows ORGAN as machine 17 (18/18 on the display). Its two pressure plates
 
 ## Verification and cost
 
-All 30 rendered states matched their reference hashes on Mac and Linux arm64. Moving the banners down two pixels changed only their rectangles in the 30 native frames. In Melodee, all 18 prints matched their source pixels at screen rows 26–46, with rows 24–25 and 47 clear across each print. Each print stayed fixed during meter updates and KIT slot selection. Control, stride, full and partial redraw, zero-allocation, gutter and idle-write tests passed. The Mac fixture also passed AddressSanitizer and UndefinedBehaviorSanitizer with `-fno-inline` to keep its full-frame test buffers in separate stack frames.
+All 30 native fixture frames matched the approved layout pixel for pixel. The Mac and Linux arm64 fixtures passed full and incremental painting, stride, scrolling, controls and allocation checks. The slot tests build each of the twelve supported voices in each of the eight slots and compare the emblem, title and sound diagram with the standalone voice. They also switch CY/CB mode in place. AddressSanitizer and UndefinedBehaviorSanitizer passed on Mac.
 
-In Melodee, the real instrument advanced through successive MACHINE choices from a single push, and two further detents on KIT's MACH row selected CP. Plus and Minus brought FILTER, LFO and AMP to the second visible row. Eight host captures matched the fixture’s native icon and banner pixels. Edit and Stage both painted. The silent demo’s KICK capture mapped TONE, ACCENT and FREQ to 33, 34 and 17. [Screens from the real plug-in](../assets/previews/engine-controls.png)
+Melodee loaded the ARM64 instrument. Screens from all 18 machine selections, all 96 slot assignments and Stage were checked against the renderer for machine identity, raised print placement and active slot indication. [Instrument screens from Melodee](../assets/previews/engine-controls.png)
 
-Mean elapsed milliseconds per paint, 2,400 iterations per case.
+Mean elapsed milliseconds per paint over 2,400 iterations per case.
 
 | Paint | M4 Max | Linux arm64 VM, Cortex-A55 compiler target |
 |---|---:|---:|
-| Full FM page | 0.0215 | 0.0273 |
-| Full TERRAIN page | 0.0233 | 0.0322 |
-| Cursor | 0.0065 | 0.0091 |
+| Full FM page | 0.0273 | 0.0334 |
+| Full TERRAIN page | 0.0313 | 0.0382 |
+| Cursor | 0.00585 | 0.00965 |
 | Meter | 0.00052 | 0.00065 |
 | Idle | 0.00016 | 0.00013 |
 
-The initial FM-to-BD change replaced 6,064 pixels, including the new print. Subsequent sweep frames changed at most 207 pixels in the header. Peak counts were 5,513 for the cursor glide, 35 for meters, 213 for scope and 247 for meters with scope. The GENDY fixture changed 660 pixels across its breakpoint diagram, meters and scope. At rest the renderer touched zero pixels. Embedded art and fonts occupy 74,688 bytes of the 256 KB budget. Screen state occupies 2,432 bytes.
-
-The Linux figures measure the VM. Actual panel contrast, SPI transfer time, physical control feel and drawing alongside the running sound engine still need a test on the MPC.
+The FM-to-BD switch replaced 5,734 pixels. Subsequent sweep frames changed at most 232 header pixels. The meter and scope together changed at most 197 pixels in their fixture. An idle paint touched zero pixels. The active art and font tables occupy 53,744 bytes, and the screen state occupies 2,432 bytes. Physical MPC LCD contrast, SPI timings and control feel require a hardware run.

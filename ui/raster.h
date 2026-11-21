@@ -10,6 +10,7 @@
 
 namespace machine::ui::draw {
 using Ink = uint32_t;
+constexpr Ink halftoneInk = 0xff281b32;
 constexpr Ink black = 0xff100c18, panel = 0xff171020, card = 0xff23152f, violet = 0xff382444,
               rule = 0xff51365f, muted = 0xffb4a1c4, paper = 0xfff4ebed, valueInk = 0xffd7c4ed,
               cyan = 0xff79dcd7, orchid = 0xffcd87e2, lime = 0xffcbef7b, selected = 0xff34283e;
