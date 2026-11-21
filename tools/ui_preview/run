@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")/../.."
+out=tools/ui_preview/out
+mkdir -p "$out"
+${CXX:-c++} -std=c++17 -O3 ${CPU_FLAGS:-} -Wall -Wextra -Wpedantic tools/ui_preview/preview.cpp ui/machine_ui.cpp ui/context.cpp -o "$out/preview"
+"$out/preview" "${1:---render}"
+if [ "${1:---render}" = --render ]; then
+    if command -v uv >/dev/null; then uv run --offline --with pillow python tools/ui_preview/gallery.py
+    else python3 tools/ui_preview/gallery.py
+    fi
+fi
