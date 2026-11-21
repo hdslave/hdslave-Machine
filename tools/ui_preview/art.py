@@ -1,0 +1,116 @@
+"""Reduce ImageGen masters to two optically fitted native sizes and encode indexed pixels."""
+from pathlib import Path
+from PIL import Image, ImageFilter
+
+dest = Path("assets/art")
+dest.mkdir(exist_ok=True)
+names = "fm bd sd cp hh cy-cb efm gnd kit".split()
+swatches = ("000000 201029 39183a 51285a 71378a 9452af ad72c6 b59ad6 "
+            "d6bdef e7dbf7 f7efff 183455 315a8a 548db5 75bace 9cdbde "
+            "3a1048 63195e 8b297c ad448f ce5aab 482068 703898 393442 8e6d98 c9adb8 e0cfc7 37316d 6747ac 3c919e 52c3b5 bc1462").split()
+
+def panel(s):
+    rgb = bytes.fromhex(s)
+    rr, gg, bb = rgb[0] >> 3, rgb[1] >> 2, rgb[2] >> 3
+    return (rr << 3 | rr >> 2, gg << 2 | gg >> 4, bb << 3 | bb >> 2)
+
+colors = list(map(panel,swatches))
+def indexed(im):
+    ix = Image.new('P', im.size)
+    ix.putpalette(bytes(channel for rgb in colors for channel in rgb))
+    def nearest(rgb):
+        return min(range(len(colors)),key=lambda i:sum((a-b)**2 for a,b in zip(rgb,colors[i])))
+    ix.putdata([nearest(im.getpixel((x,y))) for y in range(im.height) for x in range(im.width)])
+    ix.info['transparency'] = 0
+    return ix
+
+def fit(tile, size):
+    fitted=tile.copy()
+    fitted.thumbnail((size[0]-2,size[1]-2),Image.Resampling.LANCZOS)
+    fitted=fitted.filter(ImageFilter.UnsharpMask(radius=.65,percent=95,threshold=3))
+    result=Image.new('RGB',size)
+    result.paste(fitted,((size[0]-fitted.width)//2,(size[1]-fitted.height)//2))
+    return indexed(result)
+
+src = Image.open('assets/explore/acoustic-glyphs.png').convert('RGB')
+for i,name in enumerate(names):
+    if name == 'fm':
+        continue  # FM TONE has its own master.
+    col,row=i%3,i//3
+    tile=src.crop((src.width*col//3,src.height*row//3,
+                   src.width*(col+1)//3,src.height*(row+1)//3))
+    mask=tile.convert('L').point(lambda p:255 if p>29 else 0)
+    tile=tile.crop(mask.getbbox())
+    icon=fit(tile,(30,30))
+    # Clarify the hi-hat slit and the snare's crack at a single-pixel stroke.
+    if name=='hh':
+        icon.paste(0,(2,14,28,16))
+    if name=='sd':
+        icon.putpixel((15,14),0)
+    icon.save(dest/(name+'.png'))
+    if 1<=i<=7:
+        fit(tile,(68,44)).save(dest/(name+'-portrait.png'))
+
+extended_names = "terrain phase vox modal pluck gendy pulsar organ".split()
+extended_atlas = Image.open('assets/explore/extended-acoustic-glyphs.png').convert('RGB')
+for name, i in {'terrain': 0, 'phase': 1, 'vox': 4, 'modal': 3, 'pulsar': 6, 'organ': 7}.items():
+    col, row = i % 4, i // 4
+    w, h = extended_atlas.size
+    cell = extended_atlas.crop((col*w//4, row*h//2, (col+1)*w//4, (row+1)*h//2))
+    bounds = cell.convert('L').point(lambda p: 255 if p > 29 else 0).getbbox()
+    fit(cell.crop(bounds), (30, 30)).save(dest/(name+'.png'))
+
+for name, master in {'fm': 'fm-phase-slip', 'pluck': 'pluck-string',
+                     'gendy': 'gendy-breakpoints', 'kick': 'kick-pressure'}.items():
+    with Image.open(Path('assets/explore')/(master+'.png')) as image:
+        glyph = image.convert('RGB')
+    bounds = glyph.convert('L').point(lambda p: 255 if p > 29 else 0).getbbox()
+    fit(glyph.crop(bounds), (30,30)).save(dest/(name+'.png'))
+extended_names.append('kick')
+
+# Rows correspond to strips in each master, from top to bottom.
+masters = {
+    'acid-print-studies': ('fm', 'phase', 'terrain'),
+    'banners-metal': ('hh', 'cy-cb', 'efm'),
+    'banners-resonance': ('modal', 'kick'),
+}
+for name in ('bd', 'sd', 'cp', 'gnd', 'kit', 'vox', 'pluck', 'gendy', 'pulsar', 'organ'):
+    masters['banner-'+name] = (name,)
+all_names = names + extended_names
+assigned = [name for strips in masters.values() for name in strips]
+if sorted(assigned) != sorted(all_names):
+    raise ValueError("Each machine needs exactly one header print")
+
+banner_dir = dest/'banners'
+banner_dir.mkdir(exist_ok=True)
+for master, strips in masters.items():
+    with Image.open(Path('assets/explore')/(master+'.png')) as image:
+        source = image.convert('RGB')
+    for i, name in enumerate(strips):
+        top = round(i*source.height/len(strips))+3
+        bottom = round((i+1)*source.height/len(strips))-3
+        tile = source.crop((0, top, source.width, bottom))
+        tile = tile.resize((68,21), Image.Resampling.LANCZOS)
+        tile = tile.filter(ImageFilter.UnsharpMask(radius=.6, percent=65, threshold=4))
+        tile = indexed(tile.point(lambda n: round(n*.88)))
+        tile.save(banner_dir/(name+'.png'))
+        if master == 'acid-print-studies':
+            study = ('checker-well','contour-pinch','wire-membrane')[i]
+            tile.save(Path('assets/explore')/(study+'-lcd.png'))
+
+def dump(p):
+    im=Image.open(dest/(p+'.png'))
+    data=im.tobytes()
+    rows=[','.join(map(str,data[i:i+im.width])) for i in range(0,len(data),im.width)]
+    return '{\n'+',\n'.join(rows)+'\n}'
+inks=','.join('0xff%02x%02x%02x'%c for c in colors)
+Path('ui/art.h').write_text(
+    '// Original art for hdslave Machine. Generated by tools/ui_preview/art.py.\n'
+    '#pragma once\n#include <cstdint>\nnamespace machine::ui::art {\n'
+    'inline constexpr int size=30, bandWidth=68, bandHeight=21, portraitW=68, portraitH=44;\n'
+    'inline constexpr uint32_t inks[]={'+inks+'};\n'
+    'inline constexpr uint8_t icons[][size*size]={\n'+',\n'.join(map(dump,names+extended_names))+'};\n'
+    'inline constexpr uint8_t portraits[7][portraitW*portraitH]={\n'
+    +',\n'.join(dump(n+'-portrait') for n in names[1:8])+'};\n'
+    'inline constexpr uint8_t banners[][bandWidth*bandHeight]={\n'
+    +',\n'.join(dump('banners/'+name) for name in all_names)+'};\n}\n')

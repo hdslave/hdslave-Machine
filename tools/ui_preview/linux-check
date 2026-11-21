@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")/../.."
+mkdir -p tools/ui_preview/out
+docker --context colima-melodee run --rm --platform linux/arm64 -v "$PWD:/machine" -w /machine melodee-builder sh -ec '
+    c++ -std=c++17 -O3 -mcpu=cortex-a55 -Wall -Wextra -Wpedantic tools/ui_preview/preview.cpp \
+        ui/machine_ui.cpp ui/context.cpp -o tools/ui_preview/out/preview-linux
+    tools/ui_preview/out/preview-linux --test
+    tools/ui_preview/out/preview-linux --bench
+'
