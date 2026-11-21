@@ -6,7 +6,12 @@ mkdir -p "$out"
 ${CXX:-c++} -std=c++17 -O3 ${CPU_FLAGS:-} -Wall -Wextra -Wpedantic tools/ui_preview/preview.cpp ui/machine_ui.cpp ui/context.cpp -o "$out/preview"
 "$out/preview" "${1:---render}"
 if [ "${1:---render}" = --render ]; then
-    if command -v uv >/dev/null; then uv run --offline --with pillow python tools/ui_preview/gallery.py
-    else python3 tools/ui_preview/gallery.py
+    if python3 -c "import PIL" 2>/dev/null; then
+        python3 tools/ui_preview/gallery.py
+    elif command -v uv >/dev/null; then
+        uv run --with pillow python tools/ui_preview/gallery.py
+    else
+        echo "Install Pillow for python3 to generate the gallery." >&2
+        exit 1
     fi
 fi

@@ -26,13 +26,13 @@ def scale(im,n):
     return im.resize((im.width*n,im.height*n),Image.Resampling.NEAREST)
 labels_list=['FM tone / algorithm','FM tone / ratio edit','Filter response','Amplitude envelope','LFO waveform',
     'BD / playing','SD / snare','CP / bursts','HH / metal tones','CY / CB','EFM drum','GND / source',
-    'Kit / slot 3','Shift / controls','K2 / pickup','Value extremes','Track / coral','Track / mint','Track / violet','Track / yellow']
+    'Kit / slot 3','Shift / controls','K2 / pickup','Value extremes','Track / coral','Track / mint','Track / violet','Track / yellow','FM modulation envelopes']
 states=sorted(frames.glob('[0-9][0-9]-*.ppm'))
 assert len(states)==len(labels_list)
-sheet=Image.new('RGB',(24+4*664,112+5*536),(17,14,24))
+sheet=Image.new('RGB',(24+3*664,112+((len(states)+2)//3)*536),(17,14,24))
 draw=ImageDraw.Draw(sheet)
 draw.text((24,14),'hdslave Machine',font=title,fill='#f1ebef')
-draw.text((24,66),'PHASE FOLD  /  RGB565 PANEL PROOFS  /  2x',font=labels,fill='#bcabc9')
+draw.text((24,66),'PRESSURE PRINT  /  RGB565 PANEL PROOFS  /  2x',font=labels,fill='#bcabc9')
 for i,(path,label) in enumerate(zip(states,labels_list)):
     name=path.stem
     im=Image.open(path).convert('RGB')
@@ -44,7 +44,7 @@ for i,(path,label) in enumerate(zip(states,labels_list)):
     p.save(dest/'panel.png')
     page=composite(p)
     page.save(dest/'melodee.png')
-    x,y=24+i%4*664,110+i//4*536
+    x,y=24+i%3*664,110+i//3*536
     sheet.paste(scale(page,2),(x,y))
     draw.text((x,y+485),label,font=labels,fill='#cfc1dc')
 sheet.save(gallery/'contact-sheet-2x.png',optimize=True)
@@ -57,3 +57,17 @@ for name,indices in [('sweep',(0,2,4,7,10,13,17)),('glide',(0,1,2,3,4,5,7)),('vo
     strip.save(gallery/(name+'-strip.png'))
     all_frames=[frame(i) for i in range(18)]
     all_frames[0].save(gallery/(name+'.gif'),save_all=True,append_images=all_frames[1:],duration=16,loop=0,disposal=1)
+
+# Three header studies at delivery scale, in the same real FM TONE layout.
+field=gallery/'states/01-fm-algo/melodee.png'
+proof=Image.new('RGB',(960,260),(16,12,24))
+draw=ImageDraw.Draw(proof)
+small=ImageFont.truetype(face,11)
+for i,(name,label) in enumerate((('checker-well','Checker well'),('contour-pinch','Contour pinch'),('wire-membrane','Wire membrane'))):
+    shown=Image.open(field).convert('RGB')
+    art=Image.open(root/'assets/explore'/(name+'-lcd.png')).convert('RGBA')
+    shown.paste((16,12,24),(204,24,272,45))
+    shown.paste(art,(204,24),art)
+    proof.paste(shown,(i*320,0))
+    draw.text((i*320+5,242),label,font=small,fill='#dac9df')
+proof.save(root/'assets/explore/header-print-proofs.png')

@@ -19,3 +19,9 @@ A single production sprite atlas on solid pure black. EXACT 3 columns by 3 rows 
 ## phase-band
 
 A wide 3:1 abstract panoramic texture for a tiny synthesizer marquee: black ground and one sweeping folded magnetic ribbon only, crescendo from low left through center then curling upper right. Nested offset violet contour lines, like an original metallic folded film twisting in vacuum. Violet and indigo inks, occasional dusky lilac cut edge at its crest, very dark. Elegant simple optical screenprint, two broad readable folds, ample pure black negative space. Edge-to-edge trim. No text, logos, stars, frames, labels or other objects. Designed to read at 90x28 pixels.
+
+## Acoustic glyphs and print studies
+
+The second take asked for one connected family of sound silhouettes in lavender enamel on black, with a cold highlight and a violet underside. The nine approved glyphs are in acoustic-glyphs.png. Keep the cyan slit and black counters readable when reduced to thirty pixels. The more literal four-icon trial is archived separately.
+
+The selected header followed a three-part original print study. Bend a checker grid into a shallow well around a single inked violet sphere, pinch a set of magenta contour bands, and tension a thin wire membrane. Keep each print horizontal, static, and free of lettering. The checker well was selected after comparison in the FM TONE header at native size. Earlier ribbon, aperture and angular trials are kept as exploration masters.

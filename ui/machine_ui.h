@@ -10,19 +10,20 @@ namespace machine::ui {
 constexpr int width = 320, height = 218; // the canvas
 constexpr int placeBarRows = 2;          // rows 0-1 lie under Melodee's place bar
 
-enum class Group : uint8_t { Machine, Slot, Filter, Amp, Lfo };
+enum class Group : uint8_t { Machine, Slot, Filter, Amp, Lfo, FmEnv };
 enum class Role : uint8_t {
     Machine, Data, KitSlot, KitMachine, Level, Pan,
     FilterFreq, FilterReso, FilterType, FilterEnv, FilterAttack, FilterDecay,
     AmpAttack, AmpHold, AmpDecay, AmpRelease, AmpDrive, Volume,
     LfoSpeed, LfoDepth, LfoWave, LfoDest,
+    FmAttack, FmDecay, FmEnd, FmLevel,
 };
 
 struct Row {           // one parameter, as the list shows it
     uint32_t id;       // its CLAP parameter id (what knobs() names, what an Edit sets)
     Group group;
     Role role;
-    uint8_t data;      // Data A-H as 0-7 (Role::Data), else 255
+    uint8_t data;      // Data A-H as 0-7, FM envelope A/B as 0/1, else 255
     char name[10];     // capitals as shown: "RATIO C", "SWP TIME"
     char text[12];     // its value as shown: "1.00", "LP", "+0.25", "CLOSED"
     float value;       // where it sits, 0..1
