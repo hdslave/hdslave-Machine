@@ -1,6 +1,6 @@
 # Machine screen
 
-Each of the 18 machines pairs a lavender sound emblem with a 68 × 21 pixel print. FM TONE pairs phase rings with the checker well, GENDY pairs a breakpoint loop with folded graph paper, and ORGAN lines up its pipes beside the drawbars emblem. The print has its own space between the name and the machine number. In KIT it identifies the kit while the title and diagram follow the active slot. The first seven drums also have a larger portrait in the diagram panel. [All 18 machine headers](../assets/previews/machine-prints-2x.png)
+Each of the 18 machines pairs a lavender sound emblem with a 68 × 21 pixel print. FM TONE pairs a sheared halo with the checker well, GENDY pairs a breakpoint loop with folded graph paper, and ORGAN lines up its pipes beside the drawbars emblem. The print has its own space between the name and the machine number. In KIT it identifies the kit while the title and diagram follow the active slot. The first seven drums also have a larger portrait in the diagram panel. [All 18 machine headers](../assets/previews/machine-prints-2x.png)
 
 Of the three initial directions, Phase Fold left the most usable space around the values. Its original screen is preserved. The finished layout keeps its eight scrolling rows and gives the sound diagrams and three knob cards a six-pixel gutter. [Three directions](../assets/explore/directions.png) · [First take](../assets/explore/phase-fold-take-1.png) · [Header studies at native size](../assets/explore/header-print-proofs.png) · [Panel contact sheet](../assets/previews/contact-sheet-2x.png)
 
@@ -42,12 +42,12 @@ Mean elapsed milliseconds per paint, 2,400 iterations per case.
 
 | Paint | M4 Max | Linux arm64 VM, Cortex-A55 compiler target |
 |---|---:|---:|
-| Full FM page | 0.0212 | 0.0333 |
-| Full TERRAIN page | 0.0255 | 0.0398 |
-| Cursor | 0.0064 | 0.0102 |
-| Meter | 0.00057 | 0.00073 |
+| Full FM page | 0.0220 | 0.0340 |
+| Full TERRAIN page | 0.0260 | 0.0402 |
+| Cursor | 0.0066 | 0.0101 |
+| Meter | 0.00059 | 0.00076 |
 | Idle | 0.00017 | 0.00015 |
 
-The initial FM-to-BD change replaced 6,064 pixels, including the new print. Subsequent sweep frames changed at most 201 pixels in the header. Peak counts were 5,513 for the cursor glide, 35 for meters, 213 for scope and 247 for meters with scope. The GENDY fixture changed 660 pixels across its breakpoint diagram, meters and scope. At rest the renderer touched zero pixels. Embedded art and fonts occupy 74,688 bytes of the 256 KB budget. Screen state occupies 2,432 bytes.
+The initial FM-to-BD change replaced 6,064 pixels, including the new print. Subsequent sweep frames changed at most 207 pixels in the header. Peak counts were 5,513 for the cursor glide, 35 for meters, 213 for scope and 247 for meters with scope. The GENDY fixture changed 660 pixels across its breakpoint diagram, meters and scope. At rest the renderer touched zero pixels. Embedded art and fonts occupy 74,688 bytes of the 256 KB budget. Screen state occupies 2,432 bytes.
 
 The Linux figures measure the VM. Actual panel contrast, SPI transfer time, physical control feel and drawing alongside the running sound engine still need a test on the MPC.

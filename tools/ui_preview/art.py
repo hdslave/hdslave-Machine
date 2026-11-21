@@ -35,7 +35,7 @@ def fit(tile, size):
 src = Image.open('assets/explore/acoustic-glyphs.png').convert('RGB')
 for i,name in enumerate(names):
     if name == 'fm':
-        continue  # The digital rings have their own master.
+        continue  # FM TONE has its own master.
     col,row=i%3,i//3
     tile=src.crop((src.width*col//3,src.height*row//3,
                    src.width*(col+1)//3,src.height*(row+1)//3))
@@ -60,7 +60,7 @@ for name, i in {'terrain': 0, 'phase': 1, 'vox': 4, 'modal': 3, 'pulsar': 6, 'or
     bounds = cell.convert('L').point(lambda p: 255 if p > 29 else 0).getbbox()
     fit(cell.crop(bounds), (30, 30)).save(dest/(name+'.png'))
 
-for name, master in {'fm': 'fm-phase-rings', 'pluck': 'pluck-string',
+for name, master in {'fm': 'fm-phase-slip', 'pluck': 'pluck-string',
                      'gendy': 'gendy-breakpoints', 'kick': 'kick-pressure'}.items():
     with Image.open(Path('assets/explore')/(master+'.png')) as image:
         glyph = image.convert('RGB')
