@@ -457,10 +457,17 @@ void testMachinePrints() {
                 rig.m.kitSlot = 5;
                 rig.paint();
             }
+            constexpr int printY = placeBarRows + 2;
+            for (int x = 204; x < 204 + art::bandWidth; ++x) {
+                for (int y = 0; y < printY; ++y)
+                    check(rig.frame[y * width + x] == 0xff100c18, "timeline and two-row banner gutter");
+                check(rig.frame[(printY + art::bandHeight) * width + x] == 0xff100c18,
+                      "clear row between banner and meters");
+            }
             for (int y = 0; y < art::bandHeight; ++y)
                 for (int x = 0; x < art::bandWidth; ++x) {
                     auto ink = print[y * art::bandWidth + x];
-                    check(rig.frame[(2 + y) * width + 204 + x] == (ink ? art::inks[ink] : 0xff100c18),
+                    check(rig.frame[(printY + y) * width + 204 + x] == (ink ? art::inks[ink] : 0xff100c18),
                           "correct static machine print through meter and slot changes");
                 }
         }

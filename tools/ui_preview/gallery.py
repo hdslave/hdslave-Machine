@@ -68,8 +68,8 @@ small=ImageFont.truetype(face,11)
 for i,(name,label) in enumerate((('checker-well','Checker well'),('contour-pinch','Contour pinch'),('wire-membrane','Wire membrane'))):
     shown=Image.open(field).convert('RGB')
     art=Image.open(root/'assets/explore'/(name+'-lcd.png')).convert('RGBA')
-    shown.paste((16,12,24),(204,24,272,45))
-    shown.paste(art,(204,24),art)
+    shown.paste((16,12,24),(204,26,272,47))
+    shown.paste(art,(204,26),art)
     proof.paste(shown,(i*320,0))
     draw.text((i*320+5,242),label,font=small,fill='#dac9df')
 proof.save(root/'assets/explore/header-print-proofs.png')
@@ -88,8 +88,8 @@ draw = ImageDraw.Draw(header_sheet)
 draw.text((20, 18), 'Machine prints', font=title, fill='#f1ebef')
 draw.text((1034, 34), 'RGB565  /  2x', font=labels, fill='#bcabc9')
 for i, state_index in enumerate(machine_pages):
-    path = gallery/'states'/states[state_index].stem/'panel.png'
+    path = gallery/'states'/states[state_index].stem/'melodee.png'
     with Image.open(path) as page:
-        header = page.crop((0, 2, 320, 37))
+        header = page.crop((0, 21, 320, 59))
     header_sheet.paste(scale(header, 2), (20+660*(i%2), 84+90*(i//2)))
 header_sheet.save(gallery/'machine-prints-2x.png', optimize=True)
