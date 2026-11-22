@@ -15,7 +15,7 @@
 #include <strings.h>
 
 #ifndef MACHINE_VERSION
-#define MACHINE_VERSION "0.1.2"
+#define MACHINE_VERSION "0.1.3"
 #endif
 
 namespace machine
@@ -39,9 +39,8 @@ constexpr uint8_t slotIndexOf (uint8_t kind)
         if (slotKinds[i] == kind) return i;
     return 0;
 }
-// How a machine plays. Tonal: follows the note, eight at once, released by note-off. Struck: follows the note, eight
-// at once, damped by note-off. Drums: one hit at a time at their own pitch, note-off ignored. In a KIT slot every
-// machine plays at its own pitch (TUNE from the slot's base note); tonal ones still hear note-off.
+// Tonal and struck machines follow the note, eight at once, with amp release on note-off. In KIT, struck
+// machines play one-shots and tonal ones still hear note-off. Drums play one hit at a time and ignore note-off.
 inline bool tonal (uint8_t k) { return k == fmTone || k == terrain || k == phase || k == vox || k == gendy || k == pulsar || k == organ; }
 inline bool struck (uint8_t k) { return k == modal || k == pluck; }
 inline bool drum (uint8_t k) { return (k >= bd && k <= gnd) || k == kick; } // KICK: one at a time, but on the note

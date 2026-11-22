@@ -105,14 +105,14 @@ KICK's Data I is TONE and its Data J is ACCENT.
   bent down from BEND octaves over TIME. Then come the amp (ATTACK, DECAY), DRIVE and TONE. ACCENT sets how far the
   velocity reaches and how hard it pushes the drive.
 - **On their own,** the new machines follow the note, eight at once:
-  - TERRAIN, PHASE, VOX, GENDY, PULSAR and ORGAN are released by note-off, like FM TONE.
-  - MODAL and PLUCK are damped by it, like a hand on a string.
+  - TERRAIN, PHASE, VOX, MODAL, PLUCK, GENDY, PULSAR and ORGAN use AMP RELEASE when you lift a pad, like FM TONE.
   - KICK plays one hit at a time, PITCH at C2 and the note moving it from there.
 - **VOX and PULSAR** have a LENGTH of their own. Its top is INF, held until note-off.
 
 **KIT**
 - Notes 36–43 (a Melodee drum track's first eight pads) play slots 1–8.
 - A slot may also be MODAL, PLUCK, VOX, PULSAR or KICK, played at C3 moved by its TUNE.
+- MODAL and PLUCK slots ring out as one-shots when you lift the pad.
 - Each slot has its own machine (BD to GND), Data A–H, LEVEL and PAN.
 - A slot's new hit chokes only itself. A closed HH also chokes the open ones.
 - The default kit: kick, snare, clap, closed and open hats, cymbal, an FM tom, a ground tone.
@@ -123,8 +123,10 @@ KICK's Data I is TONE and its Data J is ACCENT.
   - FREQ, RESO, TYPE (low, high or band pass; zero-delay feedback);
   - ENV, ±7 octaves from its own envelope (ATTACK, then DECAY).
 - **AMP:**
-  - The envelope: ATTACK, then HOLD at full, then DECAY to silence. DECAY's top is INF: it stays.
-  - RELEASE, when an FM note is let go.
+  - ATTACK opens the amp, HOLD keeps it fully open, and DECAY fades it to silence. At DECAY = INF the amp stays open
+    while you hold the pad. Set a finite DECAY to hear HOLD delay the fade.
+  - RELEASE fades a gated note from its current level when you lift the pad. For longer tails on MODAL, turn down
+    its DAMP. On PLUCK, turn up the string's own DECAY (Data B).
   - DRIVE (soft clip) and VOLUME (0 dB at three quarters).
 - **LFO:**
   - SPEED (0.05–30 Hz) and DEPTH (±).
@@ -133,9 +135,8 @@ KICK's Data I is TONE and its Data J is ACCENT.
 - **MIDI:**
   - The mod wheel deepens the LFO; pitch bend is ±2 semitones.
   - CC 123 (all notes off) releases every note; CC 120 (all sound off) stops them at once.
-  - A key played again before its note-off lets go of the note it was playing, as note-off would: FM TONE and the
-    tonal machines release it, MODAL and PLUCK damp it. Melodee sends a key's repeats with no off between, only one
-    at the end, so before 0.1.1 a held tone stacked copies of itself (hollow, combed, different each time).
+  - A key played again before its note-off lets go of the note it was playing. Melodee sends a key's repeats with
+    one note-off at the end, so before 0.1.1 a held tone stacked copies of itself (hollow, combed, different each time).
   - A note-off or choke with a host's note id lets go of that note alone; Melodee's (no id) of all the key's.
 - **Data at a note's own frame** (a step's automation, ahead of its note) play in that note: KICK's ACCENT, GENDY's
   POINTS, PLUCK's pick and MODAL's mallet take the step's value, not the step before's (0.1.1).
@@ -198,6 +199,7 @@ tools/bench.sh      # instructions a 128-frame block takes, per patch (callgrind
 - 180 random and extreme patches staying finite, every machine at 22.05, 44.1, 48, 96 and 192 kHz;
 - every pair of machines switched while notes sound (and KIT's slots), staying finite;
 - MODAL in tune in the bass at 48 and 96 kHz; the same brightness at 96 kHz as at 48;
+- MODAL and PLUCK amp attack, hold, decay and release, including their one-shot behavior in KIT;
 - no click from the filter coming back from bypass, nor from a stolen voice;
 - PLUCK's low notes at 96 kHz;
 - every parameter's text read back as itself (each Data under each machine);

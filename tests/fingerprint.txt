@@ -77,10 +77,10 @@ preset-phase-lead ef80afe18b191679
 preset-phase-acid c65df58ce1d0278d
 preset-vox-choir b566254f43c59225
 preset-vox-knock d5ffa3fb9cb864d1
-preset-marimba a64b984d082cad0d
-preset-gong 8f94f47a9647a15d
-preset-pluck-harp ba517085a00688b5
-preset-pluck-bass a1f82c698f2c86f9
+preset-marimba ab0bee506d880db5
+preset-gong bc3a14f30aa99b01
+preset-pluck-harp d372da9e28205ee9
+preset-pluck-bass 16cb551397428fb9
 preset-gendy-insects d52a2cbc115e1d79
 preset-gendy-buzz a27147e42b2b46bd
 preset-pulsar-rhythm f1f6d9779e9fecc5
@@ -92,8 +92,8 @@ preset-boom-kick d223895af774b5a9
 machine-9 634ecf7ff68f9a9d
 machine-10 6b4051f30f5c9abd
 machine-11 bdde72e2be3fc4f5
-machine-12 f3915cc98daf8385
-machine-13 f7f306a8518fda29
+machine-12 591f8a5b765265d1
+machine-13 2b35e84cd0528625
 machine-14 56bd2babfeb5330d
 machine-15 ec936c3b16e86d85
 machine-16 8849d6e2b75f41d9

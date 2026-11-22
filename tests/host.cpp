@@ -729,6 +729,57 @@ void barrage (const char* out)
     }
 }
 
+// Compare the same strike through each amp stage. A fresh instance repeats the mallet or pick exactly.
+void struckAmpEnvelopes()
+{
+    constexpr uint64_t lift = 2407; // a pad lifted about 50 ms in, between control updates
+    for (int machine : { 12, 13 }) // MODAL, PLUCK
+    {
+        auto render = [=] (std::vector<std::pair<std::string, const char*>> settings, bool liftPad, bool kitSlot = false) {
+            Instance m;
+            if (kitSlot)
+                m.setup ({ { "Machine", 8 }, { "Kit 1 Machine", machine == 12 ? 7.0 : 8.0 } });
+            else
+                m.setup ({ { "Machine", machine } });
+            std::vector<std::pair<std::string, double>> values;
+            for (const auto& [name, text] : settings)
+            {
+                double v = 0.0;
+                CHECK (m.params->text_to_value (m.plugin, m.id (name), text, &v));
+                values.push_back ({ name, v });
+            }
+            m.setup (values);
+            const int key = kitSlot ? 36 : 48;
+            std::vector<At> notes { { 0, At::on, key } };
+            if (liftPad) notes.push_back ({ lift, At::off, key });
+            std::vector<float> l, r;
+            m.render (0.4, notes, l, r);
+            return l;
+        };
+        const auto held = render ({}, false);
+        const auto attack = render ({ { "Amp Attack", "100ms" } }, false);
+        const auto decay = render ({ { "Amp Decay", "40ms" } }, false);
+        const auto hold = render ({ { "Amp Hold", "120ms" }, { "Amp Decay", "40ms" } }, false);
+        CHECK (rms (attack, 240, 480) < 0.11 * rms (held, 240, 480));
+        CHECK (rms (decay, 3840, 4800) == 0.0);
+        CHECK (std::equal (hold.begin(), hold.begin() + 4800, held.begin()));
+        CHECK (rms (hold, 3840, 4800) > 0.001 && peak (hold, 9600) == 0.0);
+
+        const auto fast = render ({ { "Amp Release", "20ms" } }, true);
+        const auto slow = render ({ { "Amp Release", "2s" } }, true);
+        CHECK (std::equal (fast.begin(), fast.begin() + lift, held.begin()));
+        CHECK (std::equal (slow.begin(), slow.begin() + lift, held.begin()));
+        CHECK (peak (fast, lift + 1920) == 0.0);
+        // The 2 s release falls by about 6 dB in 200 ms, on top of the string's own decay.
+        const double natural = rms (held, lift + 9600, lift + 10080);
+        const double tail = rms (slow, lift + 9600, lift + 10080);
+        CHECK (natural > 0.001 && tail > 0.47 * natural && tail < 0.52 * natural);
+
+        const auto hit = render ({ { "Amp Release", "20ms" } }, false, true);
+        CHECK (render ({ { "Amp Release", "20ms" } }, true, true) == hit);
+    }
+}
+
 // Melodee's screen (when built with ui/): it paints, K1-K3 follow the cursor, an edit changes a parameter and tells
 // the host, the machine changes from its own row, and KIT's SLOT row turns no knob.
 void screen()
@@ -1421,6 +1472,7 @@ int main (int argc, char** argv)
     drums (argv[2]);
     kit (argv[2]);
     barrage (argv[2]);
+    struckAmpEnvelopes();
     screen();
     hostCopies();
     engineFindings();

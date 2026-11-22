@@ -96,7 +96,7 @@ struct Voice
     float segPos = 0.0f, segLen = 1.0f;
     // MODAL: each mode's two last outputs and its coefficients.
     float my1[12] {}, my2[12] {}, mb1[12] {}, mb2[12] {}, mg[12] {};
-    float modalFor[9] {}; // what its coefficients were worked out for (pitch, its knobs, released): unchanged, kept
+    float modalFor[8] {}; // pitch and knob values used for the cached coefficients
     float modalRatio[12] {}, modalR[12] {}, modalG[12] {}, modalHz = 0.0f; // the parts that do not move with the pitch
     // PLUCK: where it writes in its line; PULSAR: the pulse count.
     uint32_t write = 0;
@@ -226,7 +226,8 @@ public:
             if (voice.on && voice.key == key && ! voice.released && sameNote (voice, noteId))
             {
                 voice.released = true;
-                if (tonal (voice.kind) && voice.ampStage != Voice::ended) voice.ampStage = Voice::release; // struck ones damp, drums ring out
+                const bool gated = tonal (voice.kind) || (struck (voice.kind) && voice.slot < 0);
+                if (gated && voice.ampStage != Voice::ended) voice.ampStage = Voice::release;
             }
     }
 
@@ -1295,8 +1296,7 @@ private:
         static constexpr float scatter[12] = { 0.31f, -0.72f, 0.55f, -0.18f, 0.93f, -0.47f, 0.08f, -0.86f, 0.64f, -0.29f, 0.77f, -0.61f };
         if (slow)
             voice.st[6] = 0.0f; // the loudest this sub-block: quiet through a whole one, it has ended
-        const float released = voice.released && voice.slot < 0 ? 1.0f : 0.0f;
-        const float key[9] = { voice.noteHz * pitchRatio, p.knob[0], p.knob[1], p.knob[2], p.knob[3], p.knob[4], p.knob[5], p.knob[7], released };
+        const float key[] = { voice.noteHz * pitchRatio, p.knob[0], p.knob[1], p.knob[2], p.knob[3], p.knob[4], p.knob[5], p.knob[7] };
         const bool restMoved = voice.fresh || std::memcmp (key + 1, voice.modalFor + 1, sizeof (key) - sizeof (float)) != 0;
         if (slow && (restMoved || key[0] != voice.modalFor[0] || voice.modalHz != p.v[0]))
         {
@@ -1308,7 +1308,7 @@ private:
                 const float m = p.knob[1] * 3.0f;
                 const int lo = std::min (2, (int) m);
                 const float frac = m - (float) lo;
-                const float t60 = std::max (0.03f, 8.0f * std::pow (0.01f, p.knob[3])) * (released > 0.0f ? 0.12f : 1.0f);
+                const float t60 = std::max (0.03f, 8.0f * std::pow (0.01f, p.knob[3]));
                 const float pos = 0.05f + 0.9f * p.knob[4], tilt = p.knob[2] * 2.0f - 1.5f;
                 for (int i = 0; i < 12; ++i)
                 {
@@ -1404,7 +1404,7 @@ private:
         const float hz = voice.noteHz * pitchRatio * std::exp2 (p.v[0] / 12.0f);
         const float a = 0.08f + 0.92f * p.knob[2];
         const float c = -0.6f * p.knob[5];
-        const float t60 = std::max (0.02f, voice.released && voice.slot < 0 ? std::min (p.v[1], 0.12f) : p.v[1]);
+        const float t60 = std::max (0.02f, p.v[1]);
         if (voice.st[0] < 0.0f) // plucked: the line filled with its burst
         {
             const uint32_t period = (uint32_t) std::max (2.0f, std::min ((float) lineLength - 4.0f, rate / hz));
