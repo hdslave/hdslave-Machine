@@ -245,7 +245,7 @@ LFO) are worked out again only when what they come from changes.
 
 ## Install
 
-Copy `build/Machine.clap` to `Melodee/Plugins/hdslave Machine/hdslave Machine.clap` on the card. Then pick it on an
-empty track: Stage, Plugin, hdslave Machine. It needs only libc and libm.
+Copy `build/Machine.clap` to `Melodee/Plugins/hdslave/hdslave Machine.clap` on the card. Then pick it on an
+empty track: Stage, Plugin, hdslave, hdslave Machine. It needs only libc and libm.
 
 Not tried on the MPC Sample yet.
