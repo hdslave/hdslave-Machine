@@ -1,20 +1,18 @@
 # hdslave Machine
 
-A CLAP instrument for the Akai MPC Sample, running in Melodee by Kerem Kiliç (Ellic Studio). It's a multi-machine
-synth in the style of Elektron's machines:
+**An 18-engine multi-machine synthesizer and drum groove voice in the style of Elektron's machines, as a CLAP plug-in for the Akai MPC Sample.**
 
-- **FM TONE:** a four-operator FM voice, eight notes at once.
-- **Seven drum machines:** BD, SD, CP, HH, CY/CB, EFM DRUM and GND.
-- **KIT:** eight drum slots played from one track.
-- **A second barrage of stranger voices:** TERRAIN (wave terrain), PHASE (vector phaseshaping), VOX (VOSIM),
-  MODAL (a struck object), PLUCK (a plucked string), GENDY (dynamic stochastic), PULSAR and ORGAN.
+![Machine custom raised-banner interface running in hdslaveOS](docs/machine-screen.gif)
+
+Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melodee-sample) / [hdslaveOS](https://github.com/hdslave/hdslaveOS) (64-bit ARM Linux, Cortex-A55). Switch between 18 distinct synthesis and percussion engines on the fly:
+
+- **FM TONE:** an 8-voice, four-operator FM synthesizer with 8 algorithms and dedicated modulator envelopes.
+- **Seven drum machines:** BD, SD, CP, HH, CY/CB, EFM DRUM, and GND.
+- **KIT:** eight independent drum slots playable together from a single track.
+- **Eight experimental voices:** **TERRAIN** (wave terrain), **PHASE** (vector phaseshaping), **VOX** (VOSIM), **MODAL** (struck resonator), **PLUCK** (plucked string), **GENDY** (dynamic stochastic), **PULSAR**, and **ORGAN**.
 - **KICK:** a resonator kick in the style of Korg's volca kick, with all ten of its controls.
 
-Every machine goes through the same voice section: a filter with its own envelope, drive, and an amp envelope. One
-LFO can reach the pitch, the filter, the level or any Data knob.
-
-In hdslaveOS the Machine draws its own page on the MPC's screen (`ui/`, the screen extension). In any other
-host, or in stock Melodee, it plays through the host's ordinary parameter pages.
+Every machine runs through a shared voice section — filter with its own envelope, drive, amp envelope, and a routable LFO targeting pitch, filter, level, or any Data knob. Under **hdslaveOS**, Machine renders its own bespoke raised-banner screen with live visualizers for each engine (`ui/`); in stock Melodee or other CLAP hosts, it exposes standard parameter pages.
 
 ## Machines
 
