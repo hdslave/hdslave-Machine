@@ -10,6 +10,7 @@ constexpr int listY = 52, rowH = 15, rowsVisible = 8, listW = 196, contextX = 20
 constexpr int headW = contextX, headH = 35, cardY = 176;
 constexpr int bannerY = placeBarRows + headH + 1, plotOffset = listY - bannerY, plotHeight = 97;
 constexpr uint32_t none = 0xffffffffu;
+constexpr uint64_t sweepMs = 150; // the heading's wipe from one machine to the next
 int boundedCursor(int cursor, const Model &m) {
     return index(cursor, count(m) - 1);
 }
@@ -158,6 +159,11 @@ void diagram(Raster &r, const Model &m, Group group) {
                 }
         }
         int plotY = y - plotOffset;
+        // In the plot, keep three clear pixels after the caption and its mode text too, as after the tabs: the print
+        // must not run under a heading's lettering (it covered the end of RESONATOR and PICK POINT).
+        if (plotY >= 0 && plotY >= std::min(caption.top, mode.top) - 2 &&
+            plotY <= std::max(caption.bottom, mode.bottom) + 2)
+            start = std::max(start, std::max(caption.right, mode.right) + 4);
         for (int x = start; x < r.w; ++x) {
             int col = x - (r.w - art::bandWidth);
             auto index = print[y * art::bandWidth + col];
@@ -367,6 +373,10 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
     const bool switched = seen_ && machine != machineId(previous_);
     syncControls(m);
     const bool bell = cowbell(m, machine == int(Kind::Kit) ? drum : machine);
+    // A switch wipes from the old heading to the new one. One that arrives while a wipe still runs (the machine knob
+    // turned on through several machines) shows the new heading at once: restarting the wipe each time would keep
+    // the old, half-wiped titles on screen until the knob stops.
+    const bool snap = switched && sweepFrame_ < 16;
     if (switched) {
         fromMachine_ = machineId(previous_);
         fromSlot_ = slotId(previous_);
@@ -374,8 +384,9 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
         fromBell_ = lastBell_;
         sweepStart_ = h.nowMs;
     }
-    int phase = switched || sweepFrame_ < 16
-                    ? int(std::min<uint64_t>(250, elapsed(h.nowMs, sweepStart_)) * 16 / 250)
+    int phase = snap ? 16
+                : switched || sweepFrame_ < 16
+                    ? int(std::min<uint64_t>(sweepMs, elapsed(h.nowMs, sweepStart_)) * 16 / sweepMs)
                     : 16;
     // A group jump can leave spare rows below the last group. Keep that view while moving within it.
     const int maxTop = std::max(count(m) - rowsVisible, std::min(top_, count(m) - 1));
@@ -422,13 +433,11 @@ bool Screen::paint(const Model &m, const Host &h, Ink *pixels, int stride, bool 
     if (full || switched || phase != sweepFrame_ || bell != lastBell_ ||
         (machine == 8 && (slot != slotId(previous_) || drum != previous_.kitMachines[slot])))
         tile(0, placeBarRows, headW, headH, [&](Raster &r) {
+            // The new heading at once; the orchid edge still sweeps across it, but never over half of the old title (a
+            // split such as "BASS|ND" read as a glitch).
             heading(r, machine, slot, drum, bell);
-            if (phase < 16) {
-                int edge = headW * phase / 16;
-                r.left = edge;
-                heading(r, fromMachine_, fromSlot_, fromKitMachine_, fromBell_);
-                r.box(edge, 2, 1, r.h - 4, orchid);
-            }
+            if (phase < 16)
+                r.box(headW * phase / 16, 2, 1, r.h - 4, orchid);
         });
     if (full || switched)
         tile(contextX, placeBarRows, contextW, 20, [&](Raster &r) {
