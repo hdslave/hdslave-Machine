@@ -3,6 +3,7 @@
 #   make            build/Machine.clap
 #   make test       the checks against the built plug-in (tests/host.cpp) and the sound's fingerprint
 #                   (tests/fingerprint.cpp: the output to the bit, against tests/fingerprint.txt)
+#   make sanitize   the host tests against a build with AddressSanitizer and UBSan
 #   make bench      build/bench: renders busy patches; tools/bench.sh counts its instructions
 # The screen (ui/) builds on its own: make -C ui.
 CXX ?= g++
@@ -25,7 +26,7 @@ SCREEN := -DMACHINE_SCREEN=1 -I$(UI_DIR)
 UI_OBJECTS := $(patsubst $(UI_DIR)/%.cpp,$(OUT)/ui/%.o,$(UI_SOURCES))
 endif
 
-.PHONY: all test bench clean fingerprint-update
+.PHONY: all test bench clean fingerprint-update sanitize
 all: $(OUT)/Machine.clap
 
 $(OUT)/Machine.clap: $(SOURCES) $(HEADERS) $(UI_OBJECTS) src/exports.map Makefile
@@ -51,6 +52,14 @@ test: $(OUT)/Machine.clap $(OUT)/host $(OUT)/fingerprint
 # The sound's hashes after a change meant to change the sound (see tests/fingerprint.cpp).
 fingerprint-update: $(OUT)/Machine.clap $(OUT)/fingerprint
 	$(OUT)/fingerprint $(OUT)/Machine.clap > tests/fingerprint.txt
+
+SAN := -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -g -O1
+SAN_ENV := ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1:abort_on_error=1
+sanitize: $(SOURCES) $(HEADERS) $(UI_SOURCES) tests/host.cpp tests/wav.h Makefile
+	@mkdir -p $(OUT)/san
+	$(CXX) -std=c++17 $(SAN) -mcpu=cortex-a55 $(WARN) -fPIC -shared -Ithird_party/clap/include -Isrc $(SCREEN) $(SOURCES) $(UI_SOURCES) -o $(OUT)/san/Machine.clap
+	$(CXX) -std=c++17 $(SAN) $(WARN) -Ithird_party/clap/include tests/host.cpp -ldl -o $(OUT)/san/host
+	$(SAN_ENV) $(OUT)/san/host $(OUT)/san/Machine.clap $(OUT)/san
 
 $(OUT)/bench: tests/bench.cpp $(SOURCES) $(HEADERS) Makefile
 	@mkdir -p $(OUT)
