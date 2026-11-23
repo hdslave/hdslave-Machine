@@ -1,6 +1,6 @@
 // Copyright (C) 2026 hdslave
 // Silent CLAP instrument for trying the UI on a plug-in track.
-#include "melodee_screen.h"
+#include "../../src/melodee_screen.h"
 #include "../ui_preview/model.h"
 #include <atomic>
 #include <new>
