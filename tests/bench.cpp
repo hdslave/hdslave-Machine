@@ -1,10 +1,12 @@
 // hdslave Machine's cost: renders patches through the CLAP entry for SECONDS at 48 kHz in 128-frame blocks, as
 // Melodee plays them, and prints the time a block takes here. tools/bench.sh runs it under callgrind for instruction
 // counts (exact and repeatable, unlike timings on a computer that is not the MPC).
-//   bench [worst|fm|kit|stopped|terrain|phase|vox|modal|pluck|gendy|pulsar|organ|kick] [SECONDS]
+//   bench [worst|fm|kit|stopped|terrain|phase|vox|modal|pluck|gendy|pulsar|organ|kick|flood] [SECONDS]
 // worst: FM TONE's eight voices held, every operator busy, the filter resonant and swept by the LFO, drive on.
 // fm: a three-note chord on FM Keys. kit: KIT playing a busy groove. stopped: nothing sounding. A machine's name:
-// eight of its voices held (struck ones struck again every second; KICK a hit every sixteenth).
+// eight of its voices held (struck ones struck again every second; KICK a hit every sixteenth). flood: ORGAN's
+// eight held voices again, but a host block a frame, so every render fragment is one sample long -- the shape
+// the per-voice coefficient cache answers to (count its instructions per 128 samples against organ's).
 #include "../src/machine.cpp"
 
 #include <cctype>
@@ -17,7 +19,7 @@ int main (int argc, char** argv)
     const std::string mode = argc > 1 ? argv[1] : "worst";
     const double seconds = argc > 2 ? std::atof (argv[2]) : 10.0;
     constexpr double rate = 48000.0;
-    constexpr uint32_t block = 128;
+    const uint32_t block = mode == "flood" ? 1u : 128u;
 
     static const clap_host host { CLAP_VERSION, nullptr, "bench", "", "", "1", [] (const clap_host*, const char*) -> const void* { return nullptr; },
                                   [] (const clap_host*) {}, [] (const clap_host*) {}, [] (const clap_host*) {} };
@@ -43,6 +45,7 @@ int main (int argc, char** argv)
         for (auto& c : name) c = (char) std::tolower ((unsigned char) c);
         if (name == mode) kind = k;
     }
+    if (mode == "flood") kind = machine::organ; // a cached machine held, as organ holds it, a frame a block
     if (kind >= 0) values = { { machine::ParamId::machine, (double) kind }, { filterFreq, 0.8 }, { filterReso, 0.3 } };
 
     struct Events

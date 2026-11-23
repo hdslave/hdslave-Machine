@@ -1,5 +1,9 @@
 # Third-party notices
 
+## Plug-in headers
+
+The CLAP headers in `third_party/clap/` are MIT, copyright © 2021 Alexandre BIQUE (Free Audio). The text is in `third_party/clap/LICENSE`.
+
 ## Machine screen
 
 The machine emblems, header prints and exploration mockups are original art created for hdslave with OpenAI ImageGen. Copyright © 2026 hdslave. The production renderer embeds the indexed emblems from `assets/art` and the 18 machine prints from `assets/art/banners`. The selected masters and print crops are in `assets/explore`. The reference posters supplied during design are inspiration only.

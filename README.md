@@ -230,7 +230,7 @@ meant to keep the sound must leave them as they are; `make fingerprint-update` r
 
 | Patch | Instructions a block | Share of one core |
 |---|---|---|
-| Eight held FM voices with everything busy | 209,000 | about 4.4% |
+| Eight held FM voices with everything busy | 210,000 | about 4.4% |
 | An FM chord struck again each second, releasing the last | 87,000 | about 1.8% |
 | A busy KIT groove | 47,000 | about 1.0% |
 | Silence | 3,000 | about 0.06% |
@@ -255,7 +255,11 @@ The page costs the audio thread nothing but a 128-sample copy a block. On the sc
 paints a second, and only while something moves; most of them redraw just the meters and the scope.
 
 Data values, the shared section's coefficients, FM TONE's steps and MODAL's modes (only their tuning follows a pitch
-LFO) are worked out again only when what they come from changes.
+LFO) are worked out again only when what they come from changes. Cut into 1-frame host blocks (`build/bench flood`,
+ORGAN's eight held voices, callgrind per 128 samples), the same sound takes 559,826 instructions (about 11.7% of a
+core) against 137,179 in 128-frame blocks, so per-fragment work dominates there; without the per-voice coefficient
+cache it measured 730,542. The cache removes about a quarter in that shape, against about 3.6% in steady blocks
+(142,353 to 137,179).
 
 ## Install
 
