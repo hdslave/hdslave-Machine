@@ -60,8 +60,10 @@ struct Voice
     int key = -1;
     float velocity = 1.0f;
     float noteHz = 261.63f;
+    float glideHz = 0.0f;  // a slide's target pitch (0: none): noteHz moves to it over about 60 ms
     uint64_t order = 0;    // when it started (stealing takes the oldest)
     bool released = false; // its key was let go
+    bool sustained = false; // let go while the sustain pedal is down: it sounds on until the pedal lifts
     bool choking = false;
     float choke = 1.0f, chokeStep = 0.0f;
     float meter = 0.0f;
@@ -110,6 +112,13 @@ struct Voice
     int burst = 0;
     dsp::Noise noise;
     dsp::Svf aux;
+    // The machine's slow coefficients (its renderer's exp/pow/tan results), worked out for cacheKey's exact inputs
+    // and kept while they hold (Engine::coefStale), so a block cut at every event does not work them out again for
+    // each fragment. 255: nothing worked out yet.
+    float cacheKey[14] {};
+    float cacheF[10] {};
+    uint32_t cacheI[8] {};
+    uint8_t cacheKind = 255;
 };
 
 class Engine
@@ -130,6 +139,7 @@ public:
         modalNoiseCoef = std::exp (-1.0f / (0.015f * rate));
         modalNoiseRate = std::sqrt (48000.0f / rate); // white noise into the modes: as loud at any rate as at 48 kHz
         pluckTensionCoef = std::exp (-1.0f / (0.03f * rate));
+        slideCoef = 1.0f - std::exp (-(float) sub / (0.06f * rate)); // a slide's glide, a sub-block at a time
         modalStrikeRef = 0.0f;
         const float pos = 0.05f + 0.9f * dataSpec (modal, 4).def, tilt = dataSpec (modal, 2).def * 2.0f - 1.5f;
         for (int i = 0; i < 12; ++i) modalStrikeRef += modalStrike (i, pos, tilt);
@@ -149,6 +159,8 @@ public:
         lfoHeld = 0.0f;
         bendSemis = 0.0f;
         wheel = 0.0f;
+        pedalDown = legatoPedal = false;
+        portamentoFrom = -1;
         for (auto& m : meters)
             m.store (0.0f, std::memory_order_relaxed);
     }
@@ -175,6 +187,8 @@ public:
     {
         if (key < 0 || key > 127) return;
         vel = vel < 0.0f ? 0.0f : vel > 1.0f ? 1.0f : vel;
+        const int slideFrom = portamentoFrom; // CC 84's key, spent on this note whatever it does
+        portamentoFrom = -1;
         const uint8_t kind = machineKind();
         if (kind == kit)
         {
@@ -182,11 +196,31 @@ public:
             if (slot < 0 || slot >= (int) kitSlots) return;
             const uint8_t slotMachine = slotKind ((uint32_t) slot);
             const bool closedHat = slotMachine == hh && v[kitId ((uint32_t) slot, ParamId::kitData)] < 0.5f;
+            const bool openHat = slotMachine == hh && ! closedHat;
             for (auto& voice : voices)
             {
-                if (! voice.on || voice.choking) continue;
-                if (voice.slot == slot) chokeVoice (voice);
-                else if (closedHat && voice.kind == hh && v[kitId ((uint32_t) voice.slot, ParamId::kitData)] >= 0.5f) chokeVoice (voice); // open hats
+                if (! voice.on || voice.choking || voice.slot < 0) continue;
+                const bool voiceOpen = voice.kind == hh && v[kitId ((uint32_t) voice.slot, ParamId::kitData)] >= 0.5f;
+                if (voice.slot == slot)
+                {
+                    // Struck on this very frame (nothing of it rendered yet): the louder hit alone plays, a tie to
+                    // the later one; the losing hit never sounds at all.
+                    if (voice.fresh)
+                    {
+                        if (rawVelocity (voice) > vel) return;
+                        voice.on = false;
+                    }
+                    else
+                        chokeVoice (voice);
+                }
+                else if (closedHat && voiceOpen) // a closed hat chokes the open ones
+                {
+                    if (voice.fresh) voice.on = false;
+                    else chokeVoice (voice);
+                }
+                // An open hat struck on a closed one's frame loses to it, whichever order they came in.
+                else if (openHat && voice.kind == hh && ! voiceOpen && voice.fresh)
+                    return;
             }
             lastSlot.store ((uint8_t) slot, std::memory_order_relaxed);
             slotHits.fetch_add (1, std::memory_order_relaxed);
@@ -196,14 +230,43 @@ public:
         if (drum (kind)) // a drum machine on its own: one hit at a time
         {
             for (auto& voice : voices)
-                if (voice.on && ! voice.choking) chokeVoice (voice);
+            {
+                if (! voice.on || voice.choking) continue;
+                if (voice.fresh) // this frame's earlier hit, as in KIT above
+                {
+                    if (rawVelocity (voice) > vel) return;
+                    voice.on = false;
+                }
+                else
+                    chokeVoice (voice);
+            }
             start (pick(), kind, -1, key, vel, noteId);
             return;
         }
+        // A slide or tie (CC 84 named the held key): its voices go on to this key with no new attack -- instantly
+        // while the legato pedal (CC 68) is down, else gliding over about 60 ms. The named key's own note-off
+        // arrives after this note-on and finds no voice on it, as a slide needs.
+        if (slideFrom >= 0)
+        {
+            bool slid = false;
+            const float target = 440.0f * std::exp2 (((float) key - 69.0f) / 12.0f);
+            for (auto& voice : voices)
+                if (voice.on && ! voice.released && ! voice.choking && voice.slot < 0 && voice.key == slideFrom)
+                {
+                    voice.key = key;
+                    noteIds[&voice - voices] = noteId;
+                    voice.sustained = false;
+                    if (legatoPedal) voice.noteHz = target, voice.glideHz = 0.0f;
+                    else voice.glideHz = target;
+                    slid = true;
+                }
+            if (slid) return;
+        }
         // The key again while it still sounds (Melodee moves a pending note-off past the key's new note-on, so none
         // comes between): the note it was playing is let go as its note-off would let it go, never left held under
-        // the new one (two of a held tone on one pitch would comb, piling up with each repeat).
-        noteOff (key);
+        // the new one (two of a held tone on one pitch would comb, piling up with each repeat). The pedal does not
+        // hold this one: the key was struck again.
+        releaseKey (key, -1, true);
         uint32_t sounding = 0;
         for (auto& voice : voices)
             sounding += voice.on && ! voice.choking;
@@ -219,16 +282,38 @@ public:
         start (pick(), kind, -1, key, vel, noteId);
     }
 
-    // The key's notes let go; with a note id (>= 0) only that note, where its voice has an id of its own.
-    void noteOff (int key, int32_t noteId = -1)
+    // The key's notes let go; with a note id (>= 0) only that note, where its voice has an id of its own. While
+    // the sustain pedal is down they sound on instead, until it lifts.
+    void noteOff (int key, int32_t noteId = -1) { releaseKey (key, noteId, false); }
+
+    // Every note let go at once, the pedal's held ones too (CC 123); the pedal itself stays as it is.
+    void releaseAllNotes()
     {
         for (auto& voice : voices)
-            if (voice.on && voice.key == key && ! voice.released && sameNote (voice, noteId))
+            if (voice.on)
             {
                 voice.released = true;
-                const bool gated = tonal (voice.kind) || (struck (voice.kind) && voice.slot < 0);
-                if (gated && voice.ampStage != Voice::ended) voice.ampStage = Voice::release;
+                voice.sustained = false;
+                if (gatedVoice (voice) && voice.ampStage != Voice::ended) voice.ampStage = Voice::release;
             }
+    }
+
+    void sustainPedal (bool down)
+    {
+        pedalDown = down;
+        if (! down) releaseSustained();
+    }
+    void legato (bool on) { legatoPedal = on; }
+    void portamento (int fromKey) { portamentoFrom = fromKey; }
+    // CC 121: the bend and wheel back to rest, the pedals up (their notes let go), no slide pending.
+    void resetControllers()
+    {
+        bendSemis = 0.0f;
+        wheel = 0.0f;
+        legatoPedal = false;
+        portamentoFrom = -1;
+        pedalDown = false;
+        releaseSustained();
     }
 
     // A choke: the voices of `key` (all of them for -1) gone at once; with a note id, as noteOff.
@@ -298,6 +383,9 @@ private:
     float dataOffsetNow = 0.0f;
     dsp::Noise lfoNoise;
     float bendSemis = 0.0f, wheel = 0.0f;
+    bool pedalDown = false, legatoPedal = false; // CC 64 and CC 68
+    int portamentoFrom = -1;                      // CC 84's key, for the next pitched note
+    float slideCoef = 1.0f;                       // a slide's glide a sub-block (prepare() sets it from the rate)
     float scratch[sub] {};
     // PLUCK's strings, one a voice, long enough for about 12 Hz at the rate in use (a power of two, made when the
     // plug-in is activated, never on the audio thread).
@@ -348,9 +436,60 @@ private:
         return noteId < 0 || own < 0 || own == noteId;
     }
 
+    // A voice whose amp hears note-off: the tonal machines, and the struck ones on their own (in KIT they ring
+    // out as one-shots).
+    static bool gatedVoice (const Voice& voice) { return tonal (voice.kind) || (struck (voice.kind) && voice.slot < 0); }
+    // How hard a voice was struck, before KICK's ACCENT reshaped its velocity.
+    static float rawVelocity (const Voice& voice) { return voice.kind == kick ? voice.st[6] : voice.velocity; }
+
+    void releaseKey (int key, int32_t noteId, bool force)
+    {
+        for (auto& voice : voices)
+        {
+            if (! voice.on || voice.key != key || ! sameNote (voice, noteId)) continue;
+            if (! voice.released)
+            {
+                voice.released = true;
+                if (! gatedVoice (voice)) continue;
+                if (pedalDown && ! force) voice.sustained = true;
+                else if (voice.ampStage != Voice::ended) voice.ampStage = Voice::release;
+            }
+            else if (force && voice.sustained) // the key struck again: the pedal no longer holds its earlier note
+            {
+                voice.sustained = false;
+                if (gatedVoice (voice) && voice.ampStage != Voice::ended) voice.ampStage = Voice::release;
+            }
+        }
+    }
+    void releaseSustained()
+    {
+        for (auto& voice : voices)
+            if (voice.on && voice.sustained)
+            {
+                voice.sustained = false;
+                if (gatedVoice (voice) && voice.ampStage != Voice::ended) voice.ampStage = Voice::release;
+            }
+    }
+
+    // Whether a voice's slow coefficients (Voice::cacheF/cacheI, and its aux filter's setting) no longer answer
+    // to their inputs and must be worked out again. The inputs are the pitch as it stands (the note and this
+    // sub-block's pitchRatio, which bend and an LFO to PITCH move), every Data knob after the LFO (a Data value
+    // in its units is a pure function of its knob and the machine), and KICK's struck pitch and raw velocity.
+    // Compared to the bit: what it then recomputes with the same expressions is the same sound, only sooner.
+    bool coefStale (Voice& voice, const Patch& p)
+    {
+        const float key[14] = { pitchRatio, voice.noteHz, p.knob[0], p.knob[1], p.knob[2], p.knob[3], p.knob[4],
+                                p.knob[5], p.knob[6], p.knob[7], p.knob[8], p.knob[9], voice.st[6], voice.st[7] };
+        if (voice.cacheKind == voice.kind && std::memcmp (key, voice.cacheKey, sizeof (key)) == 0) return false;
+        std::memcpy (voice.cacheKey, key, sizeof (key));
+        voice.cacheKind = voice.kind;
+        return true;
+    }
+
     void chokeVoice (Voice& voice)
     {
         if (voice.choking) return;
+        voice.sustained = false;
         const Patch& patch = voice.slot >= 0 ? slots[voice.slot] : main;
         if (! voice.owns && patch.kind == voice.kind) voice.own = patch, voice.owns = true;
         voice.choking = true;
@@ -527,6 +666,11 @@ private:
         {
             if (subEnd) voice.on = false;
             return;
+        }
+        if (slow && voice.glideHz > 0.0f) // a slide on its way to its pitch, settled exactly at the end of it
+        {
+            voice.noteHz += (voice.glideHz - voice.noteHz) * slideCoef;
+            if (std::fabs (voice.glideHz - voice.noteHz) <= voice.glideHz * 1e-4f) voice.noteHz = voice.glideHz, voice.glideHz = 0.0f;
         }
         switch (voice.kind)
         {

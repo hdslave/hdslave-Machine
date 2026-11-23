@@ -30,12 +30,12 @@ int failures = 0, checks = 0;
 const clap_plugin_entry* entry = nullptr;
 const clap_plugin_factory* factory = nullptr;
 
-int rescans = 0, presetsLoaded = 0, presetErrors = 0;
+int rescans = 0, presetsLoaded = 0, presetErrors = 0, processRequests = 0, flushRequests = 0;
 const void* hostExtension (const clap_host*, const char* id)
 {
     static const clap_host_log log { [] (const clap_host*, clap_log_severity s, const char* m) { std::printf ("  [plug-in log %d] %s\n", (int) s, m); } };
     static const clap_host_params params { [] (const clap_host*, clap_param_rescan_flags f) { rescans += (f & CLAP_PARAM_RESCAN_VALUES) != 0; },
-                                           [] (const clap_host*, clap_id, clap_param_clear_flags) {}, [] (const clap_host*) {} };
+                                           [] (const clap_host*, clap_id, clap_param_clear_flags) {}, [] (const clap_host*) { ++flushRequests; } };
     static const clap_host_preset_load presetLoad {
         [] (const clap_host*, uint32_t, const char*, const char*, int32_t, const char*) { ++presetErrors; },
         [] (const clap_host*, uint32_t, const char*, const char*) { ++presetsLoaded; },
@@ -46,7 +46,7 @@ const void* hostExtension (const clap_host*, const char* id)
     return nullptr;
 }
 
-clap_host host { CLAP_VERSION, nullptr, "Machine test host", "tests", "", "1", hostExtension, [] (const clap_host*) {}, [] (const clap_host*) {},
+clap_host host { CLAP_VERSION, nullptr, "Machine test host", "tests", "", "1", hostExtension, [] (const clap_host*) {}, [] (const clap_host*) { ++processRequests; },
                  [] (const clap_host*) {} };
 
 struct Events
@@ -813,9 +813,11 @@ void screen()
     CHECK (in (MELODEE_SCREEN_WHEEL, 1));
     ext->knobs (m.plugin, ids);
     CHECK (ids[0] == 1 && ids[1] == 2 && ids[2] == 3);
-    const int before = rescans;
+    const int before = rescans, wakes = processRequests, flushes = flushRequests;
     CHECK (in (MELODEE_SCREEN_PUSH, 1) && in (MELODEE_SCREEN_WHEEL, 2)); // ALGO 3 to 5
     CHECK (std::fabs (m.value ("Data A") - 4.0 / 7.0) < 1e-6 && m.text ("Data A") == "5" && rescans > before);
+    // An edit also wakes a sleeping plug-in (Melodee does not call process while it sleeps) and asks for a flush.
+    CHECK (processRequests > wakes && flushRequests > flushes);
     CHECK (in (MELODEE_SCREEN_PUSH, 1) && in (MELODEE_SCREEN_WHEEL, -1) && in (MELODEE_SCREEN_PUSH, 1) && in (MELODEE_SCREEN_WHEEL, 17));
     CHECK (m.value ("Machine") == 17 && m.text ("Data A").find ("Hz") != std::string::npos); // KICK, its Data reset
     std::vector<float> l, r;
@@ -1454,6 +1456,180 @@ void fuzz()
             std::printf ("FAIL fuzz round %d (%s at %.0f Hz): peak %.2f\n", round, machines[round % machineCount], m.rate, peak (l)), ++failures;
     }
 }
+// The verified review fixes: same-frame hits (Melodee gives every MIDI event of a block frame 0) play the louder
+// once, KIT's closed hat wins over an open one struck on the same frame either way round, the sustain pedal holds
+// notes, CC 121 resets the controllers, CC 84 slides a held note to the next with no new attack, a velocity-0
+// note-on with a note id lets go of that note alone, a state from a newer version is refused, and a zero sample
+// rate is refused at activate.
+void reviewFixes()
+{
+    std::vector<float> l, r;
+    const std::function<double (double, const std::vector<At>&)> level = [&] (double machine, const std::vector<At>& events) {
+        Instance m;
+        m.setup ({ { "Machine", machine } });
+        m.render (0.3, events, l, r);
+        return rms (l, 0, 4800);
+    };
+    for (double machine : { 1.0, 8.0 }) // BD on its own, then KIT's first slot (also BD): one voice, two hits, one frame
+    {
+        const double loud = level (machine, { { 0, At::on, 36, 1.0 } }), quiet = level (machine, { { 0, At::on, 36, 0.2 } });
+        CHECK (level (machine, { { 0, At::on, 36, 1.0 }, { 0, At::on, 36, 0.2 } }) > 0.8 * loud);  // loud then quiet: the loud one
+        CHECK (level (machine, { { 0, At::on, 36, 0.2 }, { 0, At::on, 36, 1.0 } }) > 0.8 * loud);  // quiet then loud: the loud one
+        CHECK (level (machine, { { 0, At::on, 36, 0.6 }, { 0, At::on, 36, 0.6 } }) < 1.4 * level (machine, { { 0, At::on, 36, 0.6 } })); // a tie: once
+        CHECK (quiet < 0.5 * loud);
+    }
+    const std::function<double (const std::vector<At>&)> hatTail = [&] (const std::vector<At>& events) {
+        Instance m;
+        m.setup ({ { "Machine", 8 } });
+        m.render (0.6, events, l, r);
+        return rms (l, 6000, 14400);
+    };
+    // KIT slots 4 (key 39, closed) and 5 (key 40, open) on one frame: the closed one wins either way round.
+    const double openAlone = hatTail ({ { 0, At::on, 40, 1.0 } });
+    CHECK (openAlone > 0.002);
+    CHECK (hatTail ({ { 0, At::on, 40, 1.0 }, { 0, At::on, 39, 1.0 } }) < 0.4 * openAlone);
+    CHECK (hatTail ({ { 0, At::on, 39, 1.0 }, { 0, At::on, 40, 1.0 } }) < 0.4 * openAlone);
+    // The sustain pedal: the note sounds on after its off, and lets go when the pedal lifts.
+    {
+        Instance m;
+        m.setup (pureSine);
+        m.setup ({ { "Amp Release", 0.4 } });
+        m.render (0.6, { { 0, At::on, 60, 1.0 }, { 2400, At::midi, 0, 0, "", { 0xb0, 64, 127 } }, { 4800, At::off, 60 },
+                         { 14400, At::midi, 0, 0, "", { 0xb0, 64, 0 } } }, l, r);
+        CHECK (rms (l, 9600, 14400) > 0.08);
+        CHECK (rms (l, 21600, 28800) < 0.02);
+    }
+    // Struck again while the pedal holds the key's earlier note, that note lets go: the quiet restrike alone is
+    // left sounding, not the loud note held under it.
+    {
+        std::vector<float> refL, refR;
+        {
+            Instance one;
+            one.setup (pureSine);
+            one.setup ({ { "Amp Release", 0.4 } });
+            one.render (0.6, { { 0, At::on, 60, 0.2 } }, refL, refR);
+        }
+        const double quietAlone = rms (refL, 19200, 28800);
+        Instance m;
+        m.setup (pureSine);
+        m.setup ({ { "Amp Release", 0.4 } });
+        m.render (0.6, { { 0, At::on, 60, 1.0 }, { 2400, At::midi, 0, 0, "", { 0xb0, 64, 127 } }, { 4800, At::off, 60 },
+                         { 9600, At::on, 60, 0.2 } }, l, r);
+        CHECK (quietAlone > 0.01);
+        CHECK (rms (l, 19200, 28800) < 1.6 * quietAlone);
+    }
+    // CC 121: the bend back to the middle, and the pedal's notes let go.
+    {
+        Instance m;
+        m.setup (pureSine);
+        m.render (0.5, { { 0, At::on, 60, 1.0 }, { 2400, At::midi, 0, 0, "", { 0xe0, 0, 127 } }, { 9600, At::midi, 0, 0, "", { 0xb0, 121, 0 } } }, l, r);
+        CHECK (std::fabs (frequency (l, 14400, 24000, 48000) - 261.63) < 3.0);
+        Instance p;
+        p.setup (pureSine);
+        p.setup ({ { "Amp Release", 0.4 } });
+        p.render (0.6, { { 0, At::on, 60, 1.0 }, { 2400, At::midi, 0, 0, "", { 0xb0, 64, 127 } }, { 4800, At::off, 60 },
+                         { 9600, At::midi, 0, 0, "", { 0xb0, 121, 0 } } }, l, r);
+        CHECK (rms (l, 16800, 24000) < 0.02);
+    }
+    // A slide: CC 84 names the held key, the next note goes to its pitch with no new attack. With a decaying amp
+    // envelope the slid note dies on the first note's envelope where a plain restrike (the reference, no CC 84)
+    // sounds on, and the first key's later off does not let it go early.
+    {
+        const std::function<double (bool, size_t, size_t, std::vector<float>&)> slideLevel = [&] (bool slide, size_t from, size_t to, std::vector<float>& out) {
+            Instance m;
+            m.setup (pureSine);
+            m.setup ({ { "Amp Decay", 0.75 } }); // about 0.85 s to silence
+            std::vector<At> events { { 0, At::on, 60, 1.0 }, { 12000, At::off, 60 } };
+            if (slide) events.push_back ({ 9600, At::midi, 0, 0, "", { 0xb0, 84, 60 } }); // before the note, as the host queues it
+            events.push_back ({ 9600, At::on, 64, 1.0 });
+            std::vector<float> rr;
+            m.render (1.2, events, out, rr);
+            return rms (out, from, to);
+        };
+        std::vector<float> slid, restruck;
+        CHECK (slideLevel (true, 10200, 12000, slid) > 0.004); // still sounding just after the slide
+        CHECK (std::fabs (frequency (slid, 24000, 38400, 48000) - 329.63) < 4.0); // settled on the new pitch
+        const double slidTail = slideLevel (true, 38400, 48000, slid), restruckTail = slideLevel (false, 38400, 48000, restruck);
+        CHECK (slidTail < 0.5 * restruckTail); // no second attack: the first envelope's tail, not a new note's
+    }
+    // A velocity-0 note-on is an off for its own note id alone: the key's newer note sounds on.
+    {
+        Instance m;
+        m.setup (pureSine);
+        m.setup ({ { "Amp Release", 0.4 } });
+        m.render (0.6, { { 0, At::on, 60, 1.0, "", {}, 7 }, { 4800, At::on, 60, 1.0, "", {}, 8 }, { 9600, At::on, 60, 0.0, "", {}, 7 } }, l, r);
+        CHECK (rms (l, 19200, 28800) > 0.08);
+    }
+    // A state saved by a newer version is refused whole; nothing changes.
+    {
+        std::vector<uint8_t> saved;
+        clap_ostream os { &saved, [] (const clap_ostream* s, const void* d, uint64_t n) -> int64_t {
+            auto* v = static_cast<std::vector<uint8_t>*> (s->ctx);
+            v->insert (v->end(), (const uint8_t*) d, (const uint8_t*) d + n);
+            return (int64_t) n;
+        } };
+        {
+            Instance m;
+            m.setup ({ { "Data A", 1.0 } });
+            CHECK (m.state->save (m.plugin, &os));
+        }
+        CHECK (saved.size() > 12);
+        saved[4] = 2; // the version, after the tag
+        struct Reader { const std::vector<uint8_t>* data; size_t at = 0; } reader { &saved };
+        clap_istream is { &reader, [] (const clap_istream* s, void* d, uint64_t n) -> int64_t {
+            auto* rd = static_cast<Reader*> (s->ctx);
+            const uint64_t left = rd->data->size() - rd->at, take = std::min (left, n);
+            std::memcpy (d, rd->data->data() + rd->at, take);
+            rd->at += take;
+            return (int64_t) take;
+        } };
+        Instance back;
+        const double before = back.value ("Data A");
+        CHECK (! back.state->load (back.plugin, &is));
+        CHECK (back.value ("Data A") == before);
+    }
+    // No rate, no activation (the engine divides by it).
+    {
+        const auto* d = factory->get_plugin_descriptor (factory, 0);
+        const clap_plugin* raw = factory->create_plugin (factory, &host, d->id);
+        CHECK (raw != nullptr && raw->init (raw));
+        const bool activated = raw->activate (raw, 0.0, 1, 4096);
+        CHECK (! activated);
+        if (activated) raw->deactivate (raw);
+        raw->destroy (raw);
+    }
+    // A process call with nowhere to write is an error, not a crash.
+    {
+        Instance m;
+        float* outs[2] = { nullptr, nullptr };
+        clap_audio_buffer buffer {};
+        buffer.data32 = outs;
+        buffer.channel_count = 2;
+        Events e;
+        OutEvents ignored;
+        clap_process p {};
+        p.frames_count = 128;
+        p.audio_outputs = &buffer;
+        p.audio_outputs_count = 1;
+        p.in_events = &e.in;
+        p.out_events = &ignored.out;
+        CHECK (m.plugin->process (m.plugin, &p) == CLAP_PROCESS_ERROR);
+        float left[128] {};
+        outs[0] = left; // a right channel claimed but not given is an error too
+        CHECK (m.plugin->process (m.plugin, &p) == CLAP_PROCESS_ERROR);
+    }
+    // Eight held FM voices: how far past full scale the summed output goes (there is no limiter by design; the
+    // README's levels note stands on this staying near the three-note figure).
+    {
+        Instance m;
+        std::vector<At> notes;
+        for (int k = 0; k < 8; ++k) notes.push_back ({ 0, At::on, 48 + 3 * k, 1.0 });
+        m.render (1.0, notes, l, r);
+        const double eight = std::max (peak (l), peak (r));
+        std::printf ("  eight held FM voices peak %.3f (%.1f dBFS)\n", eight, 20.0 * std::log10 (eight));
+        CHECK (eight > 0.5 && eight < 3.2);
+    }
+}
 } // namespace
 
 int main (int argc, char** argv)
@@ -1481,6 +1657,7 @@ int main (int argc, char** argv)
     engineReview();
     repeatedKeys();
     dataAtNote();
+    reviewFixes();
     blockSizes();
     blockSizesBarrage();
     fuzz();

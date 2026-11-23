@@ -7,6 +7,7 @@
 #if MACHINE_SCREEN
 #include "machine_ui.h"
 #include "melodee_screen.h"
+#include "kinds.h"
 #endif
 
 #include <clap/clap.h>
@@ -22,6 +23,25 @@ namespace machine
 {
 namespace
 {
+#if MACHINE_SCREEN
+// The page numbers the machines again (ui/kinds.h) in the order the MACHINE parameter lists them: the two lists
+// are one list, and the model's numbers only mean anything while they stay that way.
+static_assert ((uint8_t) ui::Kind::FmTone == fmTone && (uint8_t) ui::Kind::Bd == bd && (uint8_t) ui::Kind::Sd == sd
+               && (uint8_t) ui::Kind::Cp == cp && (uint8_t) ui::Kind::Hh == hh && (uint8_t) ui::Kind::CyCb == cycb
+               && (uint8_t) ui::Kind::Efm == efm && (uint8_t) ui::Kind::Gnd == gnd && (uint8_t) ui::Kind::Kit == kit
+               && (uint8_t) ui::Kind::Terrain == terrain && (uint8_t) ui::Kind::Phase == phase && (uint8_t) ui::Kind::Vox == vox
+               && (uint8_t) ui::Kind::Modal == modal && (uint8_t) ui::Kind::Pluck == pluck && (uint8_t) ui::Kind::Gendy == gendy
+               && (uint8_t) ui::Kind::Pulsar == pulsar && (uint8_t) ui::Kind::Organ == organ && (uint8_t) ui::Kind::Kick == kick
+               && ui::machineCount == kindCount);
+constexpr bool sameSlotKinds()
+{
+    if (ui::slotKindCount != slotKindCount) return false;
+    for (int i = 0; i < slotKindCount; ++i)
+        if ((uint8_t) ui::slotKinds[i] != slotKinds[i]) return false;
+    return true;
+}
+static_assert (sameSlotKinds());
+#endif
 const char* const features[] = { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_SYNTHESIZER, CLAP_PLUGIN_FEATURE_DRUM,
                                  CLAP_PLUGIN_FEATURE_DRUM_MACHINE, CLAP_PLUGIN_FEATURE_STEREO, nullptr };
 
@@ -211,7 +231,8 @@ bool paramsFromText (const clap_plugin* plugin, clap_id id, const char* text, do
     return true;
 }
 
-// MIDI from a port that speaks it: notes, bend (+-2 semitones), the mod wheel (into the LFO) and all notes off.
+// MIDI from a port that speaks it: notes, bend (+-2 semitones), the mod wheel (into the LFO), the sustain pedal,
+// Melodee's ties and slides (legato CC 68, portamento CC 84 naming the held key) and the channel modes.
 void midi (Plugin& p, const uint8_t data[3])
 {
     const uint8_t status = data[0] & 0xf0;
@@ -219,8 +240,12 @@ void midi (Plugin& p, const uint8_t data[3])
     else if (status == 0x80 || (status == 0x90 && data[2] == 0)) p.engine.noteOff (data[1] & 0x7f);
     else if (status == 0xe0) p.engine.bend ((float) (((data[2] & 0x7f) << 7 | (data[1] & 0x7f)) - 8192) / 8192.0f * 2.0f);
     else if (status == 0xb0 && data[1] == 1) p.engine.modWheel ((float) (data[2] & 0x7f) / 127.0f);
-    else if (status == 0xb0 && data[1] == 123) for (int k = 0; k < 128; ++k) p.engine.noteOff (k); // all notes off: released
-    else if (status == 0xb0 && data[1] == 120) p.engine.allNotesOff();                                // all sound off: choked
+    else if (status == 0xb0 && data[1] == 64) p.engine.sustainPedal ((data[2] & 0x7f) >= 64);
+    else if (status == 0xb0 && data[1] == 68) p.engine.legato ((data[2] & 0x7f) >= 64);
+    else if (status == 0xb0 && data[1] == 84) p.engine.portamento (data[2] & 0x7f);
+    else if (status == 0xb0 && data[1] == 121) p.engine.resetControllers(); // the controllers and pedals to rest
+    else if (status == 0xb0 && data[1] == 123) p.engine.releaseAllNotes();  // all notes off: released
+    else if (status == 0xb0 && data[1] == 120) p.engine.allNotesOff();      // all sound off: choked
 }
 
 void handle (Plugin& p, const clap_event_header* e, const clap_output_events* out)
@@ -250,7 +275,7 @@ void handle (Plugin& p, const clap_event_header* e, const clap_output_events* ou
             if (n->key >= 0 && n->key < 128)
             {
                 if (n->velocity > 0.0) p.engine.noteOn (n->key, (float) n->velocity, n->note_id);
-                else p.engine.noteOff (n->key);
+                else p.engine.noteOff (n->key, n->note_id); // a velocity-0 on is its own note's off, id and all
             }
             break;
         }
@@ -468,8 +493,17 @@ bool screenInput (const clap_plugin* plugin, const melodee_screen_input_t* in)
     for (int i = 0; i < std::min (count, 4); ++i) applyEdit (p, edits[i]);
     endMain (p);
     if (count > 0)
+    {
+        // The host reads the new values again, and a sleeping plug-in is woken to take them: in Melodee an
+        // instrument that is not sounding is not processed at all, so without this a stopped player's edit
+        // would wait for some unrelated wake-up (and the host could not record it).
         if (const auto* hostParams = static_cast<const clap_host_params*> (p.host->get_extension (p.host, CLAP_EXT_PARAMS)))
+        {
             if (hostParams->rescan != nullptr) hostParams->rescan (p.host, CLAP_PARAM_RESCAN_VALUES | CLAP_PARAM_RESCAN_TEXT);
+            if (hostParams->request_flush != nullptr) hostParams->request_flush (p.host);
+        }
+        if (p.host->request_process != nullptr) p.host->request_process (p.host);
+    }
     p.animating.store (true, std::memory_order_relaxed);
     return used;
 }
@@ -563,7 +597,7 @@ bool stateLoad (const clap_plugin* plugin, const clap_istream* stream)
     char tag[4] = {};
     uint32_t header[2] = {};
     if (! readAll (stream, tag, 4) || std::memcmp (tag, stateTag, 4) != 0 || ! readAll (stream, header, sizeof (header)) || header[0] == 0
-        || header[1] > 4096)
+        || header[0] > stateVersion || header[1] > 4096) // a newer version's state refused whole, not half-read
         return false;
     float loaded[paramCount];
     for (uint32_t i = 0; i < paramCount; ++i) loaded[i] = paramAt (i).def;
@@ -666,6 +700,7 @@ void pluginDestroy (const clap_plugin* plugin)
 bool pluginActivate (const clap_plugin* plugin, double rate, uint32_t, uint32_t maxFrames)
 {
     auto& p = of (plugin);
+    if (! (rate > 0.0) || ! std::isfinite (rate)) return false; // the engine divides by the rate throughout
     p.engine.prepare (rate, maxFrames);
     p.active = true;
     return true;
@@ -695,7 +730,10 @@ clap_process_status pluginProcess (const clap_plugin* plugin, const clap_process
     auto& p = of (plugin);
     FlushDenormals flush;
     const uint32_t frames = process->frames_count;
-    if (process->audio_outputs_count < 1 || process->audio_outputs[0].channel_count < 1) return CLAP_PROCESS_ERROR;
+    if (process->audio_outputs_count < 1 || process->audio_outputs == nullptr || process->audio_outputs[0].channel_count < 1
+        || process->audio_outputs[0].data32 == nullptr || process->audio_outputs[0].data32[0] == nullptr
+        || (process->audio_outputs[0].channel_count > 1 && process->audio_outputs[0].data32[1] == nullptr))
+        return CLAP_PROCESS_ERROR;
     float* left = process->audio_outputs[0].data32[0];
     float* right = process->audio_outputs[0].channel_count > 1 ? process->audio_outputs[0].data32[1] : nullptr;
 

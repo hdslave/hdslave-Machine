@@ -15,7 +15,7 @@
 #include <strings.h>
 
 #ifndef MACHINE_VERSION
-#define MACHINE_VERSION "0.1.3"
+#define MACHINE_VERSION "0.1.4"
 #endif
 
 namespace machine
@@ -23,12 +23,8 @@ namespace machine
 // The machines, in the order the MACHINE parameter lists them: a saved project keeps the number, so new machines go
 // at the end.
 enum Kind : uint8_t { fmTone, bd, sd, cp, hh, cycb, efm, gnd, kit, terrain, phase, vox, modal, pluck, gendy, pulsar, organ, kick, kindCount };
-constexpr uint8_t drumFirst = bd, drumCount = 7; // the drum machines, BD to GND
 inline const char* const kindNames[kindCount] = { "FM TONE", "BD", "SD", "CP", "HH", "CY/CB", "EFM DRUM", "GND", "KIT",
                                                   "TERRAIN", "PHASE", "VOX", "MODAL", "PLUCK", "GENDY", "PULSAR", "ORGAN", "KICK" };
-inline const char* const kindLongNames[kindCount] = { "FM Tone", "Bass Drum", "Snare Drum", "Clap", "Hi-Hat", "Cymbal / Cowbell",
-                                                      "EFM Drum", "Ground", "Kit", "Wave Terrain", "Vector Phaseshaping", "VOSIM",
-                                                      "Modal", "Plucked String", "Dynamic Stochastic", "Pulsar", "Organ", "Resonator Kick" };
 // What a KIT slot may be, in its MACH list's order: the drums, then the pitched machines that also strike.
 inline constexpr uint8_t slotKinds[] = { bd, sd, cp, hh, cycb, efm, gnd, modal, pluck, vox, pulsar, kick };
 constexpr uint8_t slotKindCount = sizeof (slotKinds) / sizeof (slotKinds[0]);
