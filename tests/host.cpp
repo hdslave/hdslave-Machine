@@ -1499,6 +1499,36 @@ void reviewFixes()
     CHECK (openAlone > 0.002);
     CHECK (hatTail ({ { 0, At::on, 40, 1.0 }, { 0, At::on, 39, 1.0 } }) < 0.4 * openAlone);
     CHECK (hatTail ({ { 0, At::on, 39, 1.0 }, { 0, At::on, 40, 1.0 } }) < 0.4 * openAlone);
+    // Struck in a block that rendered nothing after it (a 0-frame call here; stamped past a block's end is the
+    // same), a hit is not the next block's same-frame hit: the next block's quiet hit chokes the loud one over
+    // 3 ms and plays, where same-frame rules would have kept the loud one whole. Melodee never does this (its
+    // notes land on frame 0 and the block renders after them); another host's tail must not drop a hit silently.
+    for (double machine : { 1.0, 8.0 })
+    {
+        std::vector<float> quietL, quietR, crossedL, crossedR;
+        { Instance m; m.setup ({ { "Machine", machine } }); m.render (0.3, { { 0, At::on, 36, 0.2 } }, quietL, quietR); }
+        Instance m;
+        m.setup ({ { "Machine", machine } });
+        float dummyL[1] {}, dummyR[1] {};
+        float* outs[2] = { dummyL, dummyR };
+        clap_audio_buffer buffer {};
+        buffer.data32 = outs;
+        buffer.channel_count = 2;
+        Events e;
+        e.note (0, CLAP_EVENT_NOTE_ON, 36, 1.0);
+        OutEvents ignored;
+        clap_process p {};
+        p.frames_count = 0;
+        p.audio_outputs = &buffer;
+        p.audio_outputs_count = 1;
+        p.in_events = &e.in;
+        p.out_events = &ignored.out;
+        CHECK (m.plugin->process (m.plugin, &p) != CLAP_PROCESS_ERROR);
+        m.render (0.3, { { 0, At::on, 36, 0.2 } }, crossedL, crossedR);
+        CHECK (rms (quietL, 1000, 4800) > 0.01);
+        CHECK (rms (crossedL, 1000, 4800) < 1.6 * rms (quietL, 1000, 4800)); // past the choke: the quiet hit alone
+        CHECK (peak (crossedL, 0, 288) > 1.3 * peak (quietL, 0, 288));     // the loud hit fades under it, not gone
+    }
     // The sustain pedal: the note sounds on after its off, and lets go when the pedal lifts.
     {
         Instance m;

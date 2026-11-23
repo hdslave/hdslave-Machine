@@ -6,7 +6,7 @@
 
 > **Desktop CLAP version (macOS & Windows):** A separate desktop CLAP build with all MPC screens on one interactive panel lives in [**`mac-clap/`**](mac-clap/) (`cd mac-clap && ./install-macos.sh`). Releases in this repo stay MPC Sample-only for now while the desktop builds are being finalized.
 
-Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melodee-sample) / [hdslaveOS](https://github.com/hdslave/hdslaveOS) (64-bit ARM Linux, Cortex-A55). Hosts list it as **hdslave Machine** (id `com.hdslave.machine`, version 0.1.4). Switch between 18 distinct synthesis and percussion engines on the fly:
+Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melodee-sample) / [hdslaveOS](https://github.com/hdslave/hdslaveOS) (64-bit ARM Linux, Cortex-A55). Hosts list it as **hdslave Machine** (id `com.hdslave.machine`, version 0.1.5). Switch between 18 distinct synthesis and percussion engines on the fly:
 
 - **FM TONE:** an 8-voice, four-operator FM synthesizer with 8 algorithms and dedicated modulator envelopes.
 - **Seven drum machines:** BD, SD, CP, HH, CY/CB, EFM DRUM, and GND.

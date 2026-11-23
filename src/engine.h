@@ -62,6 +62,7 @@ struct Voice
     float noteHz = 261.63f;
     float glideHz = 0.0f;  // a slide's target pitch (0: none): noteHz moves to it over about 60 ms
     uint64_t order = 0;    // when it started (stealing takes the oldest)
+    uint64_t block = 0;    // the host block it was struck in (Engine::blockNow): same-frame hits share it
     bool released = false; // its key was let go
     bool sustained = false; // let go while the sustain pedal is down: it sounds on until the pedal lifts
     bool choking = false;
@@ -154,6 +155,7 @@ public:
     {
         for (auto& voice : voices)
             voice = Voice {};
+        blockNow = 0;
         lfoPhase = 0;
         subLeft = 0;
         lfoHeld = 0.0f;
@@ -197,30 +199,34 @@ public:
             const uint8_t slotMachine = slotKind ((uint32_t) slot);
             const bool closedHat = slotMachine == hh && v[kitId ((uint32_t) slot, ParamId::kitData)] < 0.5f;
             const bool openHat = slotMachine == hh && ! closedHat;
+            // The louder of this block's hits on the slot alone plays (a tie to the later one), and a closed
+            // hat of this block beats an open one whichever order they came in. A hit that loses that way
+            // never sounds and chokes nothing, so the losing is settled before anything is choked. A hit
+            // struck in an earlier block that rendered nothing after it is no same-frame hit: it is choked
+            // below like any ringing hit, never dropped silently (struckThisBlock, not fresh alone).
+            bool loses = false;
+            for (auto& voice : voices)
+            {
+                if (! voice.on || voice.choking || voice.slot < 0 || ! struckThisBlock (voice)) continue;
+                const bool voiceOpen = voice.kind == hh && v[kitId ((uint32_t) voice.slot, ParamId::kitData)] >= 0.5f;
+                if (voice.slot == slot && rawVelocity (voice) > vel) loses = true;
+                else if (openHat && voice.kind == hh && ! voiceOpen) loses = true;
+            }
+            if (loses) return;
             for (auto& voice : voices)
             {
                 if (! voice.on || voice.choking || voice.slot < 0) continue;
                 const bool voiceOpen = voice.kind == hh && v[kitId ((uint32_t) voice.slot, ParamId::kitData)] >= 0.5f;
                 if (voice.slot == slot)
                 {
-                    // Struck on this very frame (nothing of it rendered yet): the louder hit alone plays, a tie to
-                    // the later one; the losing hit never sounds at all.
-                    if (voice.fresh)
-                    {
-                        if (rawVelocity (voice) > vel) return;
-                        voice.on = false;
-                    }
-                    else
-                        chokeVoice (voice);
+                    if (struckThisBlock (voice)) voice.on = false; // this block's quieter hit: it never sounds
+                    else chokeVoice (voice);
                 }
                 else if (closedHat && voiceOpen) // a closed hat chokes the open ones
                 {
-                    if (voice.fresh) voice.on = false;
+                    if (struckThisBlock (voice)) voice.on = false;
                     else chokeVoice (voice);
                 }
-                // An open hat struck on a closed one's frame loses to it, whichever order they came in.
-                else if (openHat && voice.kind == hh && ! voiceOpen && voice.fresh)
-                    return;
             }
             lastSlot.store ((uint8_t) slot, std::memory_order_relaxed);
             slotHits.fetch_add (1, std::memory_order_relaxed);
@@ -229,16 +235,15 @@ public:
         }
         if (drum (kind)) // a drum machine on its own: one hit at a time
         {
+            bool loses = false; // this block's earlier hit was louder, as in KIT above: settled before choking
+            for (auto& voice : voices)
+                if (voice.on && ! voice.choking && struckThisBlock (voice) && rawVelocity (voice) > vel) loses = true;
+            if (loses) return;
             for (auto& voice : voices)
             {
                 if (! voice.on || voice.choking) continue;
-                if (voice.fresh) // this frame's earlier hit, as in KIT above
-                {
-                    if (rawVelocity (voice) > vel) return;
-                    voice.on = false;
-                }
-                else
-                    chokeVoice (voice);
+                if (struckThisBlock (voice)) voice.on = false;
+                else chokeVoice (voice);
             }
             start (pick(), kind, -1, key, vel, noteId);
             return;
@@ -333,6 +338,10 @@ public:
     void bend (float semitones) { bendSemis = semitones; }
     void modWheel (float amount) { wheel = amount < 0.0f ? 0.0f : amount > 1.0f ? 1.0f : amount; }
 
+    // A new host block begins (the CLAP side calls this once a process call, 0-frame calls included):
+    // same-frame hits are this block's alone.
+    void beginBlock() { ++blockNow; }
+
     void render (float* left, float* right, uint32_t frames)
     {
         std::fill (left, left + frames, 0.0f);
@@ -377,6 +386,7 @@ private:
     float v[ParamId::end] {};
     Voice voices[voiceCount];
     uint64_t started = 0;
+    uint64_t blockNow = 0; // the host block being played (beginBlock counts them)
     uint32_t lfoPhase = 0, subLeft = 0;
     float lfoHeld = 0.0f, lfoNow = 0.0f;
     uint32_t dataDestNow = 99;
@@ -441,6 +451,10 @@ private:
     static bool gatedVoice (const Voice& voice) { return tonal (voice.kind) || (struck (voice.kind) && voice.slot < 0); }
     // How hard a voice was struck, before KICK's ACCENT reshaped its velocity.
     static float rawVelocity (const Voice& voice) { return voice.kind == kick ? voice.st[6] : voice.velocity; }
+    // Struck in this host block with nothing of it rendered yet: the same-frame hits louder-wins settles.
+    // Fresh alone would also claim a hit an earlier block left unrendered (a 0-frame call, a note stamped
+    // past the block's end); the block it was struck in tells them apart.
+    bool struckThisBlock (const Voice& voice) const { return voice.fresh && voice.block == blockNow; }
 
     void releaseKey (int key, int32_t noteId, bool force)
     {
@@ -508,6 +522,7 @@ private:
         voice.velocity = vel;
         voice.noteHz = 440.0f * std::exp2 (((float) (slot >= 0 ? slotBaseKey : key) - 69.0f) / 12.0f); // a KIT slot at its own pitch
         voice.order = ++started;
+        voice.block = blockNow;
         voice.noise.seed (seed * 1664525u + 1013904223u);
         voice.e[0] = voice.e[1] = voice.e[2] = voice.e[3] = 1.0f;
         voice.ampStage = Voice::attack;

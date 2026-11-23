@@ -736,6 +736,7 @@ clap_process_status pluginProcess (const clap_plugin* plugin, const clap_process
         return CLAP_PROCESS_ERROR;
     float* left = process->audio_outputs[0].data32[0];
     float* right = process->audio_outputs[0].channel_count > 1 ? process->audio_outputs[0].data32[1] : nullptr;
+    p.engine.beginBlock();
 
     p.resetThisBlock = false;
     p.lastFrame = frames > 0 ? frames - 1 : 0;
