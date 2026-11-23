@@ -4,6 +4,8 @@
 
 ![Machine custom raised-banner interface running in hdslaveOS](docs/machine-screen.gif)
 
+> **Desktop version (macOS & Windows):** Looking to run this plug-in on your computer in FL Studio or another CLAP host with an expanded high-resolution control panel and MIDI Learn? Get the full 11-plug-in desktop suite at [**hdslave-Synths-and-drum-machines-Mac-Win**](https://github.com/hdslave/hdslave-Synths-and-drum-machines-Mac-Win).
+
 Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melodee-sample) / [hdslaveOS](https://github.com/hdslave/hdslaveOS) (64-bit ARM Linux, Cortex-A55). Switch between 18 distinct synthesis and percussion engines on the fly:
 
 - **FM TONE:** an 8-voice, four-operator FM synthesizer with 8 algorithms and dedicated modulator envelopes.
