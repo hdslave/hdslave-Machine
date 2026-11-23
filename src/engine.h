@@ -930,11 +930,15 @@ private:
     bool renderBd (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const float f0 = p.v[0] * pitchRatio, sweep = p.v[2];
-        const float pc = std::exp (-1.0f / (std::max (0.0005f, p.v[3]) * rate));
-        const float ac = dsp::decayCoef (std::max (0.005f, p.v[1]), rate);
-        const float cc = std::exp (-1.0f / (0.0012f * rate));
+        if (coefStale (voice, p))
+        {
+            voice.cacheF[0] = std::exp (-1.0f / (std::max (0.0005f, p.v[3]) * rate));
+            voice.cacheF[1] = dsp::decayCoef (std::max (0.005f, p.v[1]), rate);
+            voice.cacheF[2] = std::exp (-1.0f / (0.0012f * rate));
+            voice.cacheF[3] = dsp::onePole (std::min (8000.0f, f0 * 8.0f), rate);
+        }
+        const float pc = voice.cacheF[0], ac = voice.cacheF[1], cc = voice.cacheF[2], nlp = voice.cacheF[3];
         const float click = p.v[4], fm = p.v[6] * 0.35f, noise = p.v[7], drive = p.v[5];
-        const float nlp = dsp::onePole (std::min (8000.0f, f0 * 8.0f), rate);
         float& pe = voice.e[0];
         float& ae = voice.e[1];
         float& ce = voice.e[2];
@@ -958,10 +962,15 @@ private:
     bool renderSd (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const float f0 = p.v[0] * pitchRatio;
-        const float tc = dsp::decayCoef (std::max (0.005f, p.v[1]), rate), nc = dsp::decayCoef (std::max (0.005f, p.v[2]), rate);
-        const float pc = std::exp (-1.0f / (0.008f * rate));
+        if (coefStale (voice, p))
+        {
+            voice.cacheF[0] = dsp::decayCoef (std::max (0.005f, p.v[1]), rate);
+            voice.cacheF[1] = dsp::decayCoef (std::max (0.005f, p.v[2]), rate);
+            voice.cacheF[2] = std::exp (-1.0f / (0.008f * rate));
+            voice.cacheF[3] = dsp::onePole (p.v[5], rate);
+        }
+        const float tc = voice.cacheF[0], nc = voice.cacheF[1], pc = voice.cacheF[2], hp = voice.cacheF[3];
         const float snappy = p.v[3], body = p.v[4], drive = p.v[6];
-        const float hp = dsp::onePole (p.v[5], rate);
         float& te = voice.e[0];
         float& ne = voice.e[1];
         float& pe = voice.e[2];
@@ -986,13 +995,19 @@ private:
     bool renderCp (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const int bursts = (int) p.v[0];
-        const uint32_t spread = (uint32_t) std::max (1.0f, std::max (0.001f, p.v[1]) * rate);
         const float tail = std::max (0.01f, p.v[2]);
-        const float burstCoef = std::exp (-1.0f / (std::max (0.0005f, 0.3f * p.v[1]) * rate));
-        const float lastCoef = dsp::decayCoef (tail, rate), roomCoef = dsp::decayCoef (3.0f * tail + 0.2f, rate);
+        if (coefStale (voice, p))
+        {
+            voice.cacheI[0] = (uint32_t) std::max (1.0f, std::max (0.001f, p.v[1]) * rate);
+            voice.cacheF[0] = std::exp (-1.0f / (std::max (0.0005f, 0.3f * p.v[1]) * rate));
+            voice.cacheF[1] = dsp::decayCoef (tail, rate);
+            voice.cacheF[2] = dsp::decayCoef (3.0f * tail + 0.2f, rate);
+            voice.cacheF[3] = dsp::onePole (p.v[3] * 0.6f, rate);
+            voice.aux.set (p.v[3], 0.3f + 0.65f * p.v[4], rate);
+        }
+        const uint32_t spread = voice.cacheI[0];
+        const float burstCoef = voice.cacheF[0], lastCoef = voice.cacheF[1], roomCoef = voice.cacheF[2], roomLp = voice.cacheF[3];
         const float room = p.v[5] * 0.6f;
-        voice.aux.set (p.v[3], 0.3f + 0.65f * p.v[4], rate);
-        const float roomLp = dsp::onePole (p.v[3] * 0.6f, rate);
         float& env = voice.e[0];
         float& roomEnv = voice.e[1];
         for (uint32_t i = 0; i < n; ++i)
@@ -1022,14 +1037,18 @@ private:
         static constexpr float metal[6] = { 205.3f, 304.4f, 369.6f, 522.7f, 540.0f, 800.0f };
         static constexpr float plain[6] = { 205.3f, 410.6f, 615.9f, 821.2f, 1026.5f, 1231.8f };
         const bool open = p.v[0] >= 0.5f;
-        const float scale = std::exp2 (p.v[1]) * pitchRatio;
-        uint32_t inc[6];
-        for (int k = 0; k < 6; ++k)
-            inc[k] = dsp::step (scale * plain[k] * std::pow (metal[k] / plain[k], p.v[4]), invRate);
-        const float decay = open ? 0.08f * std::pow (40.0f, p.knob[2]) : 0.008f * std::pow (40.0f, p.knob[2]);
-        const float coef = dsp::decayCoef (decay, rate);
+        if (coefStale (voice, p))
+        {
+            const float scale = std::exp2 (p.v[1]) * pitchRatio;
+            for (int k = 0; k < 6; ++k)
+                voice.cacheI[k] = dsp::step (scale * plain[k] * std::pow (metal[k] / plain[k], p.v[4]), invRate);
+            const float decay = open ? 0.08f * std::pow (40.0f, p.knob[2]) : 0.008f * std::pow (40.0f, p.knob[2]);
+            voice.cacheF[0] = dsp::decayCoef (decay, rate);
+            voice.aux.set (p.v[3], 0.2f, rate);
+        }
+        const uint32_t* inc = voice.cacheI;
+        const float coef = voice.cacheF[0];
         const float noise = p.v[5];
-        voice.aux.set (p.v[3], 0.2f, rate);
         float& env = voice.e[0];
         for (uint32_t i = 0; i < n; ++i)
         {
@@ -1051,16 +1070,23 @@ private:
     bool renderCyCb (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const bool bell = p.v[0] >= 0.5f;
-        const float scale = std::exp2 (p.v[1]) * pitchRatio;
         const float ring = p.v[3];
+        const bool stale = coefStale (voice, p);
         float& env = voice.e[0];
         float& ping = voice.e[1];
         if (bell)
         {
-            const uint32_t i0 = dsp::step (540.0f * scale, invRate), i1 = dsp::step (800.0f * scale, invRate);
-            const float coef = dsp::decayCoef (0.02f * std::pow (50.0f, p.knob[2]), rate);
-            const float pc = std::exp (-1.0f / (0.006f * rate));
-            voice.aux.set (std::min (p.v[4] * 0.25f, 4000.0f) * scale, 0.5f + 0.45f * ring, rate);
+            if (stale)
+            {
+                const float scale = std::exp2 (p.v[1]) * pitchRatio;
+                voice.cacheI[0] = dsp::step (540.0f * scale, invRate);
+                voice.cacheI[1] = dsp::step (800.0f * scale, invRate);
+                voice.cacheF[0] = dsp::decayCoef (0.02f * std::pow (50.0f, p.knob[2]), rate);
+                voice.cacheF[1] = std::exp (-1.0f / (0.006f * rate));
+                voice.aux.set (std::min (p.v[4] * 0.25f, 4000.0f) * scale, 0.5f + 0.45f * ring, rate);
+            }
+            const uint32_t i0 = voice.cacheI[0], i1 = voice.cacheI[1];
+            const float coef = voice.cacheF[0], pc = voice.cacheF[1];
             for (uint32_t i = 0; i < n; ++i)
             {
                 const float x = ((voice.ph[0] & 0x80000000u) ? 0.5f : -0.5f) + ((voice.ph[1] & 0x80000000u) ? 0.5f : -0.5f);
@@ -1073,10 +1099,15 @@ private:
             return env < silent;
         }
         static constexpr float ratios[6] = { 1.0f, 1.342f, 1.627f, 2.105f, 2.565f, 3.287f };
-        uint32_t inc[6];
-        for (int k = 0; k < 6; ++k) inc[k] = dsp::step (380.0f * ratios[k] * scale, invRate);
-        const float coef = dsp::decayCoef (0.2f * std::pow (30.0f, p.knob[2]), rate);
-        voice.aux.set (p.v[4], 0.15f, rate);
+        if (stale)
+        {
+            const float scale = std::exp2 (p.v[1]) * pitchRatio;
+            for (int k = 0; k < 6; ++k) voice.cacheI[k] = dsp::step (380.0f * ratios[k] * scale, invRate);
+            voice.cacheF[0] = dsp::decayCoef (0.2f * std::pow (30.0f, p.knob[2]), rate);
+            voice.aux.set (p.v[4], 0.15f, rate);
+        }
+        const uint32_t* inc = voice.cacheI;
+        const float coef = voice.cacheF[0];
         for (uint32_t i = 0; i < n; ++i)
         {
             float s[6];
@@ -1099,8 +1130,13 @@ private:
     bool renderEfm (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const float f0 = p.v[0] * pitchRatio, ratio = p.v[1], index = p.knob[2] * p.knob[2] * fmIndexTurns, sweep = p.v[6];
-        const float pc = std::exp (-1.0f / (std::max (0.0005f, p.v[3]) * rate));
-        const float ic = dsp::decayCoef (std::max (0.002f, p.v[4]), rate), ac = dsp::decayCoef (std::max (0.005f, p.v[5]), rate);
+        if (coefStale (voice, p))
+        {
+            voice.cacheF[0] = std::exp (-1.0f / (std::max (0.0005f, p.v[3]) * rate));
+            voice.cacheF[1] = dsp::decayCoef (std::max (0.002f, p.v[4]), rate);
+            voice.cacheF[2] = dsp::decayCoef (std::max (0.005f, p.v[5]), rate);
+        }
+        const float pc = voice.cacheF[0], ic = voice.cacheF[1], ac = voice.cacheF[2];
         const float noise = p.v[7];
         float& pe = voice.e[0];
         float& ie = voice.e[1];
@@ -1190,11 +1226,17 @@ private:
     {
         const float d = 0.02f + 0.96f * p.knob[0], invD = 1.0f / d, invRest = 1.0f / (1.0f - d);
         const float d2 = 1.0f - d, invD2 = 1.0f / d2, invRest2 = 1.0f / (1.0f - d2);
-        const float hz = voice.noteHz * pitchRatio;
-        const float envCoef = dsp::decayCoef (std::max (0.002f, p.v[3]), rate), venv = p.v[2] * 4.0f;
         const float twin = p.knob[4], sub = p.knob[5], fold = p.knob[6];
-        const uint32_t inc = dsp::step (hz, invRate), incTwin = dsp::step (hz * std::exp2 (twin * 30.0f / 1200.0f), invRate);
-        const uint32_t incSub = dsp::step (hz * 0.5f, invRate);
+        if (coefStale (voice, p))
+        {
+            const float hz = voice.noteHz * pitchRatio;
+            voice.cacheF[0] = dsp::decayCoef (std::max (0.002f, p.v[3]), rate);
+            voice.cacheI[0] = dsp::step (hz, invRate);
+            voice.cacheI[1] = dsp::step (hz * std::exp2 (twin * 30.0f / 1200.0f), invRate);
+            voice.cacheI[2] = dsp::step (hz * 0.5f, invRate);
+        }
+        const float envCoef = voice.cacheF[0], venv = p.v[2] * 4.0f;
+        const uint32_t inc = voice.cacheI[0], incTwin = voice.cacheI[1], incSub = voice.cacheI[2];
         const uint32_t hold = 1 + (uint32_t) (p.knob[7] * p.knob[7] * 31.0f);
         const float foldGain = 0.25f * (1.0f + 5.0f * fold);
         float& env = voice.e[0];
@@ -1222,15 +1264,20 @@ private:
     void renderOrgan (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         static constexpr uint32_t multiple[8] = { 1, 3, 2, 4, 6, 8, 10, 12 }; // of the 16', half the note
-        const float base = voice.noteHz * pitchRatio * 0.5f;
-        const uint32_t inc = dsp::step (base, invRate);
-        float level[8];
-        for (int k = 0; k < 8; ++k)
+        if (coefStale (voice, p))
         {
-            const float bar = std::min (8.0f, std::max (0.0f, p.v[k]));
-            level[k] = bar <= 0.0f || base * (float) multiple[k] > 0.45f * rate ? 0.0f : 0.15f * std::pow (10.0f, (bar - 8.0f) * 0.15f);
+            const float base = voice.noteHz * pitchRatio * 0.5f;
+            voice.cacheI[0] = dsp::step (base, invRate);
+            for (int k = 0; k < 8; ++k)
+            {
+                const float bar = std::min (8.0f, std::max (0.0f, p.v[k]));
+                voice.cacheF[k] = bar <= 0.0f || base * (float) multiple[k] > 0.45f * rate ? 0.0f : 0.15f * std::pow (10.0f, (bar - 8.0f) * 0.15f);
+            }
+            voice.cacheF[8] = std::exp (-1.0f / (0.0015f * rate));
         }
-        const float clickCoef = std::exp (-1.0f / (0.0015f * rate));
+        const uint32_t inc = voice.cacheI[0];
+        const float* level = voice.cacheF;
+        const float clickCoef = voice.cacheF[8];
         float& click = voice.e[1];
         for (uint32_t i = 0; i < n; ++i)
         {
@@ -1338,16 +1385,22 @@ private:
         const int lo = std::min (3, (int) at);
         const float frac = at - (float) lo;
         const float form1 = f1[lo] + (f1[lo + 1] - f1[lo]) * frac, form2 = f2[lo] + (f2[lo + 1] - f2[lo]) * frac;
-        const float hz = voice.noteHz * pitchRatio * std::exp2 (p.v[0] / 12.0f);
-        const uint32_t inc = dsp::step (hz, invRate);
         const int pulses = std::min (8, std::max (0, (int) p.v[3]));
         float level[8];
         level[0] = 1.0f;
         for (int k = 1; k < 8; ++k) level[k] = level[k - 1] * (1.0f - 0.95f * p.knob[4]);
-        const float fenv = p.v[5] * 3.0f, fc = dsp::decayCoef (std::max (0.002f, p.v[6]), rate);
+        const float fenv = p.v[5] * 3.0f;
         const float step1 = form1 * p.v[2] * invRate, step2 = form2 * p.v[2] * invRate;
-        float coef, *env;
-        const bool inf = lengthEnvelope (voice, p, env, coef);
+        const bool inf = p.knob[7] >= infAbove; // LENGTH's top, as lengthEnvelope has it
+        if (coefStale (voice, p))
+        {
+            voice.cacheI[0] = dsp::step (voice.noteHz * pitchRatio * std::exp2 (p.v[0] / 12.0f), invRate);
+            voice.cacheF[0] = dsp::decayCoef (std::max (0.002f, p.v[6]), rate);
+            voice.cacheF[1] = inf ? 1.0f : dsp::decayCoef (std::max (0.005f, p.v[7]), rate);
+        }
+        const uint32_t inc = voice.cacheI[0];
+        const float fc = voice.cacheF[0], coef = voice.cacheF[1];
+        float* env = &voice.e[1];
         float& fe = voice.e[0];
         auto pulse = [&] (float q) {
             const int k = (int) q;
@@ -1614,15 +1667,19 @@ private:
     bool renderKick (Voice& voice, const Patch& p, float* __restrict out, uint32_t n)
     {
         const float pitch = p.v[0] * voice.st[7] * pitchRatio, bend = p.v[1];
-        const float bc = std::exp (-1.0f / (std::max (0.0005f, p.v[2]) * rate));
         const float attack = p.v[4], atkStep = attack > 0.0f ? 1.0f / (attack * rate) : 1.0f;
-        const float dc = dsp::decayCoef (std::max (0.01f, p.v[3]), rate);
         const float colour = p.knob[5], pulse = p.knob[6], drive = p.knob[7];
-        const float pc = std::exp (-1.0f / ((0.00015f + 0.003f * colour) * rate));
+        if (coefStale (voice, p))
+        {
+            voice.cacheF[0] = std::exp (-1.0f / (std::max (0.0005f, p.v[2]) * rate));
+            voice.cacheF[1] = dsp::decayCoef (std::max (0.01f, p.v[3]), rate);
+            voice.cacheF[2] = std::exp (-1.0f / ((0.00015f + 0.003f * colour) * rate));
+            voice.cacheF[3] = dsp::onePole (p.v[8], rate);
+            voice.aux.set (std::min (pitch * 4.0f, 8000.0f), 0.85f, rate);
+        }
+        const float bc = voice.cacheF[0], dc = voice.cacheF[1], pc = voice.cacheF[2], tone = voice.cacheF[3];
         const float driveGain = 1.0f + 25.0f * drive * drive * (1.0f + 0.5f * p.knob[9] * voice.st[6]);
         const float makeup = 1.0f / (1.0f + 1.2f * drive);
-        const float tone = dsp::onePole (p.v[8], rate);
-        voice.aux.set (std::min (pitch * 4.0f, 8000.0f), 0.85f, rate);
         float& be = voice.e[0];
         float& amp = voice.e[1];
         float& pe = voice.e[2];
@@ -1654,10 +1711,16 @@ private:
     {
         const int source = (int) p.v[0];
         const float hz = p.v[1] * pitchRatio, sweep = p.v[3];
-        const float decay = std::max (0.002f, p.v[2]);
-        const float ac = dsp::decayCoef (decay, rate);
-        const float pc = std::exp (-1.0f / (std::max (0.0005f, 0.3f * decay) * rate));
-        const float a = dsp::onePole (source == 2 ? hz * 4.0f : hz * 2.0f, rate);
+        if (coefStale (voice, p))
+        {
+            const float decay = std::max (0.002f, p.v[2]);
+            voice.cacheF[0] = dsp::decayCoef (decay, rate);
+            voice.cacheF[1] = std::exp (-1.0f / (std::max (0.0005f, 0.3f * decay) * rate));
+            voice.cacheF[2] = dsp::onePole (source == 2 ? hz * 4.0f : hz * 2.0f, rate);
+            voice.cacheF[3] = std::max (voice.cacheF[2], 1e-4f);
+            voice.cacheF[4] = std::min (4.0f, 1.5f / std::sqrt (voice.cacheF[3])); // the noise's make-up, once not a sample
+        }
+        const float ac = voice.cacheF[0], pc = voice.cacheF[1], a = voice.cacheF[2], denom = voice.cacheF[3], noiseGain = voice.cacheF[4];
         float& ae = voice.e[0];
         float& pe = voice.e[1];
         for (uint32_t i = 0; i < n; ++i)
@@ -1671,13 +1734,13 @@ private:
             else if (source == 1)
             {
                 voice.lp += a * (voice.noise.next() - voice.lp);
-                y = voice.lp * std::min (4.0f, 1.5f / std::sqrt (std::max (a, 1e-4f)));
+                y = voice.lp * noiseGain;
             }
             else
             {
                 const float impulse = voice.t == 0 ? 1.0f : 0.0f;
                 voice.lp += a * (impulse - voice.lp);
-                y = voice.lp / std::max (a, 1e-4f);
+                y = voice.lp / denom;
                 ++voice.t;
             }
             out[i] = y * ae;
