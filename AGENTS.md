@@ -15,7 +15,7 @@ Read `../AGENTS.md`, then `../Workflow/plugins.md` and `../Workflow/host-facts.m
 
 ## Build and test
 
-- `./build.sh` builds the plug-in in a Linux arm64 container (image `melodee-builder`, Colima VM `melodee`). It runs `make all test`: the host tests in `tests/host.cpp` and the sound's fingerprint. Pass make targets to run others.
+- `./build.sh` builds the plug-in in a Linux arm64 container (image `melodee-builder`, Colima VM `melodee`). It runs `make all test`: the host tests in `tests/host.cpp` and the sound's fingerprint. Pass make targets to run others (`./build.sh sanitize` for ASan + UBSan over the host tests).
 - `tools/bench.sh` counts the instructions of a 128-frame block with callgrind. A block is about 4.8 M cycles on one of the MPC's Cortex-A55 cores.
 - Check the build's own exit code: `./build.sh | grep …` hides a failure.
 
@@ -34,7 +34,7 @@ Read `../AGENTS.md`, then `../Workflow/plugins.md` and `../Workflow/host-facts.m
   - CC 120 and 123 arrive at 0 on every channel when the host silences.
 - **Commits** are made as `hdslave <111106843+hdslave@users.noreply.github.com>`, with Conventional Commits. Never push, publish or stage for the card without the owner's word.
 - **Other agents' work.** Others may be working here. Check `git status` and `git worktree list`, and never edit, commit or reset files you did not change.
-- **Names and art.** No trademarked names in the plug-in's names, presets, UI text or art. Art is original; fonts are OFL, with their licences in `licenses/`.
+- **Names and art.** No trademarked names in the plug-in's names, presets, UI text or art. Art is original; fonts are OFL, with their licences beside them in `assets/fonts/<font>/OFL.txt`.
 - **Read the README** before you change the sound. It lists the sources, the inferred values and the deliberate deviations. Keep it current: version, costs, and "not yet run on the MPC" until it has been.
 
 ## This plug-in
@@ -47,3 +47,4 @@ Read `../AGENTS.md`, then `../Workflow/plugins.md` and `../Workflow/host-facts.m
 - **Fixed positions.** Machine numbers and KIT slot layouts are positional forever: append only.
   - Machine knobs are the fixed slots Data A-J, whose text changes per machine, because hosts don't re-read parameter names.
 - A machine change resets Data to that machine's defaults, through output param events.
+- **139 parameters** (35 shared + 8 KIT slots of 13) is not a multiple of three for hdslaveOS's Edit rows. Accepted as it stands: never pad the table with filler parameters to reach one; only real appended parameters may land it on a multiple.

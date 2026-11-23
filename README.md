@@ -6,7 +6,7 @@
 
 > **Desktop version (macOS & Windows):** Looking to run this plug-in on your computer in FL Studio or another CLAP host with an expanded high-resolution control panel and MIDI Learn? Get the full 11-plug-in desktop suite at [**hdslave-Synths-and-drum-machines-Mac-Win**](https://github.com/hdslave/hdslave-Synths-and-drum-machines-Mac-Win).
 
-Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melodee-sample) / [hdslaveOS](https://github.com/hdslave/hdslaveOS) (64-bit ARM Linux, Cortex-A55). Switch between 18 distinct synthesis and percussion engines on the fly:
+Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melodee-sample) / [hdslaveOS](https://github.com/hdslave/hdslaveOS) (64-bit ARM Linux, Cortex-A55). Hosts list it as **hdslave Machine** (id `com.hdslave.machine`, version 0.1.4). Switch between 18 distinct synthesis and percussion engines on the fly:
 
 - **FM TONE:** an 8-voice, four-operator FM synthesizer with 8 algorithms and dedicated modulator envelopes.
 - **Seven drum machines:** BD, SD, CP, HH, CY/CB, EFM DRUM, and GND.
@@ -74,6 +74,7 @@ KICK's Data I is TONE and its Data J is ACCENT.
 
 **The drums**
 - One hit at a time: a new one chokes the last over 3 ms.
+- Two hits in one host block land on the same frame: the louder one plays once (a tie goes to the later).
 - They ignore note-off and ring out.
 - They don't follow the note's pitch; TUNE or PITCH sets it.
 
@@ -114,7 +115,8 @@ KICK's Data I is TONE and its Data J is ACCENT.
 - A slot may also be MODAL, PLUCK, VOX, PULSAR or KICK, played at C3 moved by its TUNE.
 - MODAL and PLUCK slots ring out as one-shots when you lift the pad.
 - Each slot has its own machine (BD to GND), Data A–H, LEVEL and PAN.
-- A slot's new hit chokes only itself. A closed HH also chokes the open ones.
+- A slot's new hit chokes only itself. A closed HH also chokes the open ones. On one frame the louder hit on a
+  slot plays, and a closed hat beats an open one struck with it, whichever came first.
 - The default kit: kick, snare, clap, closed and open hats, cymbal, an FM tom, a ground tone.
 
 ## The voice section
@@ -134,6 +136,10 @@ KICK's Data I is TONE and its Data J is ACCENT.
   - DEST: PITCH (±1 octave), FREQ (±4 octaves), AMP, or DATA A–H.
 - **MIDI:**
   - The mod wheel deepens the LFO; pitch bend is ±2 semitones.
+  - CC 64 is the sustain pedal: notes let go under it sound on until it lifts (striking a held key again lets
+    its earlier note go). CC 121 (reset all controllers) centres the bend and wheel and lifts the pedals.
+  - Ties and slides (CC 68 / CC 84 naming the held key) move a pitched machine's sounding note to the next
+    key with no new attack: a tie at once, a slide gliding over about 60 ms.
   - CC 123 (all notes off) releases every note; CC 120 (all sound off) stops them at once.
   - A key played again before its note-off lets go of the note it was playing. Melodee sends a key's repeats with
     one note-off at the end, so before 0.1.1 a held tone stacked copies of itself (hollow, combed, different each time).
@@ -158,7 +164,8 @@ Resonator Kick, Boom Kick, Kit Explorer (KICK, the new machines and the drums in
 
 **Levels:** a drum hit peaks under full scale. A three-note chord peaks at up to about +2.5 dBFS, like the default FM
 patch; Melodee's centre pan takes 3 dB off a track. Gong, Acid FM, Phase Acid, Full Organ, Pulsar Formant and Gendy
-Buzz set VOLUME below 0 dB to stay there.
+Buzz set VOLUME below 0 dB to stay there. There is no limiter by design: eight held FM voices at once peak at about
++9.8 dBFS (measured by the host tests), so full eight-note chords rely on the track's and master's headroom.
 
 ## The screen
 
@@ -176,12 +183,14 @@ The controls:
 - **K1–K3:** turn the cursor's row and the two after it.
 
 `src/machine.cpp` builds the page's rows from the parameters. The page's edits become values the host is told to read
-again. The page asks for paints while something moves, and the sound asks while it plays.
+again, and wake the plug-in if it is asleep, so an edit made while stopped takes effect at once. The page asks for
+paints while something moves, and the sound asks while it plays.
 
 ## Build and test
 
 ```sh
 ./build.sh          # builds build/Machine.clap and runs the tests, in Melodee's Linux arm64 build image
+./build.sh sanitize # the host tests against an ASan + UBSan build
 tools/bench.sh      # instructions a 128-frame block takes, per patch (callgrind)
 ```
 
@@ -205,6 +214,9 @@ tools/bench.sh      # instructions a 128-frame block takes, per patch (callgrind
 - every parameter's text read back as itself (each Data under each machine);
 - the host's copy of a Data value right after a machine change in the same block;
 - a key played again before its note-off (striking alone, not stacked), and note-offs and chokes by note id;
+- two hits on one frame (the louder plays; KIT's closed hat beats an open one either way round), the sustain
+  pedal, ties and slides (CC 68/84), CC 121, a velocity-0 note-on's own note id, refused future-version states
+  and zero sample rates, and a process call with nowhere to write;
 - a Data value set at a note's own frame playing in that note (KICK, PLUCK, MODAL, GENDY, FM TONE);
 - with the screen built in, the page: it paints, K1–K3 follow the cursor, edits change parameters, and the machine
   changes from its own row.
