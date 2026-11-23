@@ -1477,6 +1477,16 @@ void reviewFixes()
         CHECK (level (machine, { { 0, At::on, 36, 0.2 }, { 0, At::on, 36, 1.0 } }) > 0.8 * loud);  // quiet then loud: the loud one
         CHECK (level (machine, { { 0, At::on, 36, 0.6 }, { 0, At::on, 36, 0.6 } }) < 1.4 * level (machine, { { 0, At::on, 36, 0.6 } })); // a tie: once
         CHECK (quiet < 0.5 * loud);
+        { // The tie again in the choke's own window (3 ms, 144 frames): one attack alone, not the first hit
+          // fading under the second. Over 4,800 frames that overlap dilutes away, which is why the wide check
+          // above also passed before the fix (1.52 times here, 1.00 now; the bits themselves are the
+          // fingerprint's, since a second start reseeds the noise).
+            std::vector<float> oneL, oneR, twoL, twoR;
+            { Instance m; m.setup ({ { "Machine", machine } }); m.render (0.3, { { 0, At::on, 36, 0.6 } }, oneL, oneR); }
+            { Instance m; m.setup ({ { "Machine", machine } }); m.render (0.3, { { 0, At::on, 36, 0.6 }, { 0, At::on, 36, 0.6 } }, twoL, twoR); }
+            CHECK (rms (twoL, 0, 144) < 1.15 * rms (oneL, 0, 144));
+            CHECK (rms (twoL, 0, 144) > 0.85 * rms (oneL, 0, 144));
+        }
     }
     const std::function<double (const std::vector<At>&)> hatTail = [&] (const std::vector<At>& events) {
         Instance m;
@@ -1515,6 +1525,7 @@ void reviewFixes()
         m.setup ({ { "Amp Release", 0.4 } });
         m.render (0.6, { { 0, At::on, 60, 1.0 }, { 2400, At::midi, 0, 0, "", { 0xb0, 64, 127 } }, { 4800, At::off, 60 },
                          { 9600, At::on, 60, 0.2 } }, l, r);
+        CHECK (rms (l, 8400, 9600) > 0.08); // the pedal held the loud note until the restrike (silent without one)
         CHECK (quietAlone > 0.01);
         CHECK (rms (l, 19200, 28800) < 1.6 * quietAlone);
     }
@@ -1529,6 +1540,7 @@ void reviewFixes()
         p.setup ({ { "Amp Release", 0.4 } });
         p.render (0.6, { { 0, At::on, 60, 1.0 }, { 2400, At::midi, 0, 0, "", { 0xb0, 64, 127 } }, { 4800, At::off, 60 },
                          { 9600, At::midi, 0, 0, "", { 0xb0, 121, 0 } } }, l, r);
+        CHECK (rms (l, 8400, 9600) > 0.08); // the pedal held the note until the reset (silent without one)
         CHECK (rms (l, 16800, 24000) < 0.02);
     }
     // A slide: CC 84 names the held key, the next note goes to its pitch with no new attack. With a decaying amp
