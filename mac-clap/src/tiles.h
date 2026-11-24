@@ -80,7 +80,7 @@ const char* CLAP_ABI machineTilesTitle (const clap_plugin_t*, uint32_t tile)
     return tile < kMachineTileCount ? kTitles[tile] : "";
 }
 
-bool CLAP_ABI machineTilesPaint (const clap_plugin_t* plugin, uint32_t tile, const melodee_screen_canvas_t* canvas, clap_id knobs_out[3])
+bool CLAP_ABI machineTilesPaint (const clap_plugin_t* plugin, uint32_t tile, const melodee_screen_frame_t* canvas, clap_id knobs_out[3])
 {
     if (tile >= kMachineTileCount || !canvas || !canvas->pixels) return false;
     auto& p = of (plugin);
@@ -96,14 +96,14 @@ bool CLAP_ABI machineTilesPaint (const clap_plugin_t* plugin, uint32_t tile, con
     ui::TilesAccess::setPinned (p.screen, top, maxRow, cur);
 
     ui::Host h {};
-    h.nowMs = canvas->now_ms;
-    h.accent = canvas->accent;
+    h.nowMs = canvas->time_ms;
+    h.accent = 0xff000000u | canvas->colour;
     h.shift = canvas->shift;
     h.playing = canvas->playing;
     for (int k = 0; k < 3; ++k)
     {
-        h.pot[k] = canvas->knobs[k].position;
-        h.engaged[k] = canvas->knobs[k].engaged;
+        h.pot[k] = canvas->pots[k];
+        h.engaged[k] = canvas->pots_live[k];
     }
 
     const bool drew = p.screen.paint (p.model, h, canvas->pixels, (int) canvas->stride, true);
@@ -257,13 +257,13 @@ void CLAP_ABI machineTilesAction (const clap_plugin_t* plugin, uint32_t, int32_t
     if (custom_id >= 10 && custom_id < 18)
     {
         p.slotPicked = custom_id - 10;
-        if (p.screenHost) p.screenHost->request_paint (p.host);
+        if (p.screenHost) p.screenHost->redraw (p.host, 0);
     }
     else if (custom_id == 100)
     {
         const int dir = wheel_delta != 0 ? (wheel_delta > 0 ? 1 : -1) : (shift ? -1 : 1);
         p.slotPicked = (p.slotPicked + dir + (int) kitSlots) % (int) kitSlots;
-        if (p.screenHost) p.screenHost->request_paint (p.host);
+        if (p.screenHost) p.screenHost->redraw (p.host, 0);
     }
 }
 

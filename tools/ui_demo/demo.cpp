@@ -1,5 +1,6 @@
 // Copyright (C) 2026 hdslave
 // Silent CLAP instrument for trying the UI on a plug-in track.
+#include <clap/clap.h>
 #include "../../src/melodee_screen.h"
 #include "../ui_preview/model.h"
 #include <atomic>
@@ -13,7 +14,7 @@ const clap_plugin_descriptor_t descriptor = {
 struct Demo {
     clap_plugin_t plugin{};
     const clap_host_t *host;
-    const clap_host_melodee_screen_t *display = nullptr;
+    const melodee_screen_host_t *display = nullptr;
     const clap_host_params_t *params = nullptr;
     Screen screen;
     std::atomic<float> value[storageSize]{}, pending[storageSize]{};
@@ -32,9 +33,9 @@ struct Demo {
     Model snapshot() const {
         return build([&](int id) { return value[id].load(std::memory_order_relaxed); }, slot.load());
     }
-    void repaint() const {
+    void repaint(uint32_t flags = 0) const {
         if (display)
-            display->request_paint(host);
+            display->redraw(host, flags);
     }
 };
 Demo &demo(const clap_plugin_t *p) {
@@ -217,19 +218,20 @@ const clap_plugin_note_ports_t notePorts = {
         v->preferred_dialect = CLAP_NOTE_DIALECT_CLAP;
         return true;
     }};
-bool paint(const clap_plugin_t *p, const melodee_screen_canvas_t *c) {
-    if (c->width != width || c->height != height || c->stride < width || c->stride > INT32_MAX)
+bool draw(const void *plugin, const melodee_screen_frame_t *c) {
+    if (!plugin || !c || !c->pixels || c->area != MELODEE_SCREEN_PAGE ||
+        c->width != width || c->height != height || c->stride < width || c->stride > INT32_MAX)
         return false;
-    auto &d = demo(p);
+    auto &d = demo(static_cast<const clap_plugin_t *>(plugin));
     auto m = d.snapshot();
     Host h{};
-    h.nowMs = c->now_ms;
-    h.accent = c->accent;
+    h.nowMs = c->time_ms;
+    h.accent = 0xff000000u | c->colour;
     h.shift = c->shift;
     h.playing = c->playing;
     for (int k = 0; k < 3; ++k) {
-        h.pot[k] = c->knobs[k].position;
-        h.engaged[k] = c->knobs[k].engaged;
+        h.pot[k] = c->pots[k];
+        h.engaged[k] = c->pots_live[k];
     }
     for (int k = 0; k < 8; ++k) {
         unsigned seq = d.strikes[k].load();
@@ -240,7 +242,7 @@ bool paint(const clap_plugin_t *p, const melodee_screen_canvas_t *c) {
         if (seq && h.nowMs >= d.stamp[k] && h.nowMs - d.stamp[k] < 220)
             m.voices[k] = 1 - float(h.nowMs - d.stamp[k]) / 220;
     }
-    bool changed = d.screen.paint(m, h, c->pixels, int(c->stride), c->whole);
+    bool changed = d.screen.paint(m, h, c->pixels, int(c->stride), c->redraw_all);
     const bool moving = d.screen.animating(m, h);
     d.animates.store(moving);
     // The host may suspend audio processing while the silent instrument is at rest.
@@ -248,10 +250,10 @@ bool paint(const clap_plugin_t *p, const melodee_screen_canvas_t *c) {
         d.repaint();
     return changed;
 }
-bool input(const clap_plugin_t *p, const melodee_screen_input_t *e) {
-    if (e->kind > MELODEE_SCREEN_NUDGE)
+bool input(const void *plugin, const melodee_screen_input_t *e) {
+    if (!plugin || !e || e->kind > MELODEE_SCREEN_STEP)
         return false;
-    auto &d = demo(p);
+    auto &d = demo(static_cast<const clap_plugin_t *>(plugin));
     auto m = d.snapshot();
     Edit edits[4];
     int n = 0;
@@ -269,16 +271,19 @@ bool input(const clap_plugin_t *p, const melodee_screen_input_t *e) {
         }
     }
     if (used)
-        d.repaint();
+        d.repaint(n ? MELODEE_SCREEN_RUN : 0);
     return used;
 }
-const clap_plugin_melodee_screen_t display = {paint, input, [](const clap_plugin_t *p, clap_id ids[3]) {
-                                                  auto &d = demo(p);
-                                                  d.screen.knobs(d.snapshot(), ids);
-                                                  for (int k = 0; k < 3; ++k)
-                                                      if (ids[k] == slotSelector)
-                                                          ids[k] = CLAP_INVALID_ID;
-                                              }};
+void controls(const void *plugin, uint32_t ids[3]) {
+    if (!plugin || !ids)
+        return;
+    auto &d = demo(static_cast<const clap_plugin_t *>(plugin));
+    d.screen.knobs(d.snapshot(), ids);
+    for (int k = 0; k < 3; ++k)
+        if (ids[k] == slotSelector)
+            ids[k] = MELODEE_SCREEN_NO_CONTROL;
+}
+const melodee_screen_t display = {draw, input, controls};
 clap_process_status process(const clap_plugin_t *p, const clap_process_t *block) {
     flush(p, block->in_events, block->out_events);
     for (uint32_t i = 0; i < block->audio_outputs_count; ++i) {
@@ -306,8 +311,8 @@ const clap_plugin_t *create(const clap_plugin_factory_t *, const clap_host_t *ho
                  d,
                  [](const clap_plugin_t *p) {
                      auto &d = demo(p);
-                     d.display = static_cast<const clap_host_melodee_screen_t *>(
-                         d.host->get_extension(d.host, CLAP_EXT_MELODEE_SCREEN_HOST));
+                     d.display = static_cast<const melodee_screen_host_t *>(
+                         d.host->get_extension(d.host, MELODEE_SCREEN_CLAP_HOST));
                      d.params = static_cast<const clap_host_params_t *>(
                          d.host->get_extension(d.host, CLAP_EXT_PARAMS));
                      return true;
@@ -320,7 +325,7 @@ const clap_plugin_t *create(const clap_plugin_factory_t *, const clap_host_t *ho
                  [](const clap_plugin_t *) {},
                  process,
                  [](const clap_plugin_t *, const char *id) -> const void * {
-                     if (!std::strcmp(id, CLAP_EXT_MELODEE_SCREEN))
+                     if (!std::strcmp(id, MELODEE_SCREEN_CLAP))
                          return &display;
                      if (!std::strcmp(id, CLAP_EXT_PARAMS))
                          return &parameters;

@@ -6,7 +6,7 @@
 
 > **Desktop CLAP version (macOS & Windows):** A separate desktop CLAP build with all MPC screens on one interactive panel lives in [**`mac-clap/`**](mac-clap/) (`cd mac-clap && ./install-macos.sh`). Releases in this repo stay MPC Sample-only for now while the desktop builds are being finalized.
 
-Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melodee-sample) / [hdslaveOS](https://github.com/hdslave/hdslaveOS) (64-bit ARM Linux, Cortex-A55). Hosts list it as **hdslave Machine** (id `com.hdslave.machine`, version 0.1.5). Switch between 18 distinct synthesis and percussion engines on the fly:
+Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melodee-sample) / [hdslaveOS](https://github.com/hdslave/hdslaveOS) (64-bit ARM Linux, Cortex-A55). Hosts list it as **hdslave Machine** (id `com.hdslave.machine`, version 0.1.6). Switch between 18 distinct synthesis and percussion engines on the fly:
 
 - **FM TONE:** an 8-voice, four-operator FM synthesizer with 8 algorithms and dedicated modulator envelopes.
 - **Seven drum machines:** BD, SD, CP, HH, CY/CB, EFM DRUM, and GND.
@@ -14,7 +14,7 @@ Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melo
 - **Eight experimental voices:** **TERRAIN** (wave terrain), **PHASE** (vector phaseshaping), **VOX** (VOSIM), **MODAL** (struck resonator), **PLUCK** (plucked string), **GENDY** (dynamic stochastic), **PULSAR**, and **ORGAN**.
 - **KICK:** a resonator kick in the style of Korg's volca kick, with all ten of its controls.
 
-Every machine runs through a shared voice section — filter with its own envelope, drive, amp envelope, and a routable LFO targeting pitch, filter, level, or any Data knob. Under **hdslaveOS**, Machine renders its own bespoke raised-banner screen with live visualizers for each engine (`ui/`); in stock Melodee or other CLAP hosts, it exposes standard parameter pages.
+Every machine runs through a shared voice section — filter with its own envelope, drive, amp envelope, and a routable LFO targeting pitch, filter, level, or any Data knob. Machine renders its raised-banner screen and live visualizers through `melodee.screen/1` on Melodee 0.7 and hdslaveOS builds based on it. Hosts without the extension can use the standard CLAP parameters.
 
 ## Machines
 
@@ -169,7 +169,7 @@ Buzz set VOLUME below 0 dB to stay there. There is no limiter by design: eight h
 
 ## The screen
 
-In hdslaveOS, the Machine draws its own page through Melodee's screen extension (`src/melodee_screen.h`). The
+Machine draws its own page through Melodee’s official screen extension (`src/melodee_screen.h`). The
 page itself is `ui/`, built in when `ui/` is there (`make`; `make UI_DIR=...` for another copy). It shows:
 - the machine across the top;
 - the parameters as rows beneath it, grouped (MACHINE, FM ENV, SLOT, FILTER, AMP, LFO);

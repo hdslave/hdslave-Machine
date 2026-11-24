@@ -30,6 +30,7 @@ int failures = 0, checks = 0;
 const clap_plugin_entry* entry = nullptr;
 const clap_plugin_factory* factory = nullptr;
 
+unsigned screenRuns = 0;
 int rescans = 0, presetsLoaded = 0, presetErrors = 0, processRequests = 0, flushRequests = 0;
 const void* hostExtension (const clap_host*, const char* id)
 {
@@ -40,6 +41,8 @@ const void* hostExtension (const clap_host*, const char* id)
         [] (const clap_host*, uint32_t, const char*, const char*, int32_t, const char*) { ++presetErrors; },
         [] (const clap_host*, uint32_t, const char*, const char*) { ++presetsLoaded; },
     };
+    static const melodee_screen_host_t screenHost { [] (const void*, uint32_t flags) { screenRuns += (flags & MELODEE_SCREEN_RUN) != 0; } };
+    if (std::strcmp (id, MELODEE_SCREEN_CLAP_HOST) == 0) return &screenHost;
     if (std::strcmp (id, CLAP_EXT_LOG) == 0) return &log;
     if (std::strcmp (id, CLAP_EXT_PARAMS) == 0) return &params;
     if (std::strcmp (id, CLAP_EXT_PRESET_LOAD) == 0) return &presetLoad;
@@ -785,52 +788,63 @@ void struckAmpEnvelopes()
 void screen()
 {
     Instance m;
-    const auto* ext = static_cast<const clap_plugin_melodee_screen*> (m.plugin->get_extension (m.plugin, CLAP_EXT_MELODEE_SCREEN));
+    const auto* ext = static_cast<const melodee_screen_t*> (m.plugin->get_extension (m.plugin, MELODEE_SCREEN_CLAP));
+#if MACHINE_SCREEN
+    CHECK (ext != nullptr);
+#endif
     if (ext == nullptr)
     {
         std::printf ("  (built without the screen: its checks skipped)\n");
         return;
     }
-    std::vector<uint32_t> pixels ((size_t) MELODEE_SCREEN_WIDTH * MELODEE_SCREEN_HEIGHT, 0);
-    melodee_screen_canvas_t canvas {};
+    std::vector<uint32_t> pixels ((size_t) MELODEE_SCREEN_WIDTH * MELODEE_SCREEN_PAGE_HEIGHT, 0);
+    melodee_screen_frame_t canvas {};
     canvas.pixels = pixels.data();
     canvas.width = canvas.stride = MELODEE_SCREEN_WIDTH;
-    canvas.height = MELODEE_SCREEN_HEIGHT;
-    canvas.accent = 0xff46d9b0u;
-    canvas.whole = true;
-    for (auto& k : canvas.knobs) k = { -1, false };
-    CHECK (ext->paint (m.plugin, &canvas));
+    canvas.height = MELODEE_SCREEN_PAGE_HEIGHT;
+    canvas.area = MELODEE_SCREEN_PAGE;
+    canvas.colour = 0x46d9b0u;
+    canvas.redraw_all = true;
+    for (auto& pot : canvas.pots) pot = -1;
+    canvas.area = MELODEE_SCREEN_STRIP;
+    CHECK (!ext->draw (m.plugin, &canvas));
+    canvas.area = MELODEE_SCREEN_PAGE;
+    --canvas.stride;
+    CHECK (!ext->draw (m.plugin, &canvas));
+    ++canvas.stride;
+    CHECK (ext->draw (m.plugin, &canvas));
     std::set<uint32_t> colours (pixels.begin(), pixels.end());
     CHECK (colours.size() > 8);
-    canvas.whole = false;
+    canvas.redraw_all = false;
     clap_id ids[3] {};
-    ext->knobs (m.plugin, ids);
+    ext->controls (m.plugin, ids);
     CHECK (ids[0] == 0 && ids[1] == 1 && ids[2] == 2); // MACHINE, ALGO, RATIO C
     auto in = [&] (uint32_t kind, int value) {
         const melodee_screen_input_t input { kind, value, false };
         return ext->input (m.plugin, &input);
     };
-    CHECK (in (MELODEE_SCREEN_WHEEL, 1));
-    ext->knobs (m.plugin, ids);
+    const unsigned beforeRun = screenRuns;
+    CHECK (in (MELODEE_SCREEN_WHEEL, 1) && screenRuns == beforeRun);
+    ext->controls (m.plugin, ids);
     CHECK (ids[0] == 1 && ids[1] == 2 && ids[2] == 3);
     const int before = rescans, wakes = processRequests, flushes = flushRequests;
     CHECK (in (MELODEE_SCREEN_PUSH, 1) && in (MELODEE_SCREEN_WHEEL, 2)); // ALGO 3 to 5
     CHECK (std::fabs (m.value ("Data A") - 4.0 / 7.0) < 1e-6 && m.text ("Data A") == "5" && rescans > before);
     // An edit also wakes a sleeping plug-in (Melodee does not call process while it sleeps) and asks for a flush.
-    CHECK (processRequests > wakes && flushRequests > flushes);
+    CHECK (processRequests > wakes && flushRequests > flushes && screenRuns > beforeRun);
     CHECK (in (MELODEE_SCREEN_PUSH, 1) && in (MELODEE_SCREEN_WHEEL, -1) && in (MELODEE_SCREEN_PUSH, 1) && in (MELODEE_SCREEN_WHEEL, 17));
     CHECK (m.value ("Machine") == 17 && m.text ("Data A").find ("Hz") != std::string::npos); // KICK, its Data reset
     std::vector<float> l, r;
     m.render (0.5, { { 0, At::on, 36, 1.0 } }, l, r);
     CHECK (peak (l) > 0.1);
-    CHECK (ext->paint (m.plugin, &canvas));
+    CHECK (ext->draw (m.plugin, &canvas));
     CHECK (in (MELODEE_SCREEN_WHEEL, -9)); // still editing MACHINE (its own edit keeps it): KICK to KIT
     CHECK (m.value ("Machine") == 8);
     CHECK (in (MELODEE_SCREEN_PUSH, 1));   // done
-    ext->knobs (m.plugin, ids);
+    ext->controls (m.plugin, ids);
     CHECK (ids[0] == 0 && ids[1] == CLAP_INVALID_ID && ids[2] == 100); // MACHINE, SLOT (no knob), slot 1's MACH
-    canvas.whole = true;
-    CHECK (ext->paint (m.plugin, &canvas));
+    canvas.redraw_all = true;
+    CHECK (ext->draw (m.plugin, &canvas));
 }
 
 // The host's copy of a value: a machine and a Data set in the same block leave the host the Data's value, not the

@@ -24,7 +24,7 @@ tools/ui_preview/linux-check
 tools/ui_demo/run
 ```
 
-The real-host run builds the silent arm64 CLAP demo in tools/ui_demo/out and captures Edit and Stage. The host build comes from the adjacent hdslaveOS checkout (../melodee-hdslave, branch hdslave); set MELODEE_SCREEN_TREE if it lives elsewhere. The preview fixture exports native, 3×, RGB565 and host-composited PNGs for every state. [Real host captures](../assets/previews/host/) · [Machine sweep](../assets/previews/sweep-strip.png) · [Cursor glide](../assets/previews/glide-strip.png) · [Meters and scope](../assets/previews/voices-scope-strip.png)
+The real-host run builds the silent arm64 CLAP demo in tools/ui_demo/out and captures Edit and Stage. The host build must support the Melodee 0.7 screen SDK. Set `MELODEE_SCREEN_TREE` to that checkout before running the demo. It defaults to the adjacent `../melodee-hdslave`. The preview fixture exports native, 3×, RGB565 and host-composited PNGs for every state. [Real host captures](../assets/previews/host/) · [Machine sweep](../assets/previews/sweep-strip.png) · [Cursor glide](../assets/previews/glide-strip.png) · [Meters and scope](../assets/previews/voices-scope-strip.png)
 
 ## Extended voices
 

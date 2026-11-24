@@ -37,9 +37,9 @@ $(OUT)/ui/%.o: $(UI_DIR)/%.cpp $(wildcard $(UI_DIR)/*.h) Makefile
 	@mkdir -p $(OUT)/ui
 	$(CXX) -std=c++17 $(OPT) -fno-exceptions -fno-rtti -fvisibility=hidden -fPIC -Wall -Wextra -I$(UI_DIR) -c $< -o $@
 
-$(OUT)/host: tests/host.cpp tests/wav.h Makefile
+$(OUT)/host: tests/host.cpp tests/wav.h src/melodee_screen.h Makefile
 	@mkdir -p $(OUT)
-	$(CXX) -std=c++17 -O2 $(WARN) -Ithird_party/clap/include tests/host.cpp -ldl -o $@
+	$(CXX) -std=c++17 -O2 $(WARN) $(SCREEN) -Ithird_party/clap/include tests/host.cpp -ldl -o $@
 
 $(OUT)/fingerprint: tests/fingerprint.cpp tests/fingerprint_scenarios.h Makefile
 	@mkdir -p $(OUT)
@@ -58,7 +58,7 @@ SAN_ENV := ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=print_stac
 sanitize: $(SOURCES) $(HEADERS) $(UI_SOURCES) tests/host.cpp tests/wav.h Makefile
 	@mkdir -p $(OUT)/san
 	$(CXX) -std=c++17 $(SAN) -mcpu=cortex-a55 $(WARN) -fPIC -shared -Ithird_party/clap/include -Isrc $(SCREEN) $(SOURCES) $(UI_SOURCES) -o $(OUT)/san/Machine.clap
-	$(CXX) -std=c++17 $(SAN) $(WARN) -Ithird_party/clap/include tests/host.cpp -ldl -o $(OUT)/san/host
+	$(CXX) -std=c++17 $(SAN) $(WARN) $(SCREEN) -Ithird_party/clap/include tests/host.cpp -ldl -o $(OUT)/san/host
 	$(SAN_ENV) $(OUT)/san/host $(OUT)/san/Machine.clap $(OUT)/san
 
 $(OUT)/bench: tests/bench.cpp $(SOURCES) $(HEADERS) Makefile

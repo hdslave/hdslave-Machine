@@ -56,7 +56,7 @@ struct Plugin
     std::atomic<uint8_t> beforeKit { fmTone };
 #if MACHINE_SCREEN
     // Melodee's screen (melodee_screen.h, ui/): the page, its model, and what it asks of the audio side.
-    const clap_host_melodee_screen* screenHost = nullptr;
+    const melodee_screen_host_t* screenHost = nullptr;
     ui::Screen screen;
     ui::Model model {};
     int slotPicked = 0;            // KIT: the slot shown (the last pad played, or SLOT)
@@ -436,30 +436,32 @@ void applyEdit (Plugin& p, const ui::Edit& e)
     if (par.text == Text::machine || par.text == Text::kitMachine) newMachine (p, e.id, before, value, 0, nullptr, false);
 }
 
-bool screenPaint (const clap_plugin* plugin, const melodee_screen_canvas_t* c)
+bool screenDraw (const void* plugin, const melodee_screen_frame_t* c)
 {
-    auto& p = of (plugin);
-    if (c == nullptr || c->pixels == nullptr || c->width != (uint32_t) ui::width || c->height != (uint32_t) ui::height) return false;
+    if (!plugin || !c || !c->pixels || c->area != MELODEE_SCREEN_PAGE
+        || c->width != ui::width || c->height != ui::height || c->stride < c->width || c->stride > INT32_MAX)
+        return false;
+    auto& p = of (static_cast<const clap_plugin*> (plugin));
     fillModel (p);
     ui::Host h {};
-    h.nowMs = c->now_ms;
-    h.accent = c->accent;
-    for (int k = 0; k < 3; ++k) h.pot[k] = c->knobs[k].position, h.engaged[k] = c->knobs[k].engaged;
+    h.nowMs = c->time_ms;
+    h.accent = 0xff000000u | c->colour;
+    for (int k = 0; k < 3; ++k) h.pot[k] = c->pots[k], h.engaged[k] = c->pots_live[k];
     h.shift = c->shift;
     h.playing = c->playing;
-    const bool drew = p.screen.paint (p.model, h, c->pixels, (int) c->stride, c->whole);
+    const bool drew = p.screen.paint (p.model, h, c->pixels, (int) c->stride, c->redraw_all);
     const bool moving = p.screen.animating (p.model, h);
     p.animating.store (moving, std::memory_order_relaxed);
     // Still moving (the machine's sweep, the cursor's glide): the next paint asked for from here. The audio side
     // asks too while it sounds, but a silent instrument is not processed at all in Melodee (its idle gate).
-    if (moving && p.screenHost != nullptr) p.screenHost->request_paint (p.host);
+    if (moving && p.screenHost != nullptr) p.screenHost->redraw (p.host, 0);
     return drew;
 }
 
-bool screenInput (const clap_plugin* plugin, const melodee_screen_input_t* in)
+bool screenInput (const void* plugin, const melodee_screen_input_t* in)
 {
-    auto& p = of (plugin);
-    if (in == nullptr || in->kind > MELODEE_SCREEN_NUDGE) return false;
+    if (!plugin || !in || in->kind > MELODEE_SCREEN_STEP) return false;
+    auto& p = of (static_cast<const clap_plugin*> (plugin));
     fillModel (p);
     ui::Edit edits[4];
     int count = 0;
@@ -471,19 +473,21 @@ bool screenInput (const clap_plugin* plugin, const melodee_screen_input_t* in)
         if (const auto* hostParams = static_cast<const clap_host_params*> (p.host->get_extension (p.host, CLAP_EXT_PARAMS)))
             if (hostParams->rescan != nullptr) hostParams->rescan (p.host, CLAP_PARAM_RESCAN_VALUES | CLAP_PARAM_RESCAN_TEXT);
     p.animating.store (true, std::memory_order_relaxed);
+    if (used && p.screenHost) p.screenHost->redraw (p.host, count > 0 ? MELODEE_SCREEN_RUN : 0);
     return used;
 }
 
-void screenKnobs (const clap_plugin* plugin, clap_id ids[3])
+void screenControls (const void* plugin, uint32_t ids[3])
 {
-    auto& p = of (plugin);
+    if (!plugin || !ids) return;
+    auto& p = of (static_cast<const clap_plugin*> (plugin));
     fillModel (p);
-    uint32_t knobs[3] = { 0xffffffffu, 0xffffffffu, 0xffffffffu };
-    p.screen.knobs (p.model, knobs);
-    for (int k = 0; k < 3; ++k) ids[k] = knobs[k] == 0xffffffffu || knobs[k] == slotRowId ? CLAP_INVALID_ID : (clap_id) knobs[k];
+    p.screen.knobs (p.model, ids);
+    for (int k = 0; k < 3; ++k)
+        if (ids[k] == slotRowId) ids[k] = MELODEE_SCREEN_NO_CONTROL;
 }
 
-const clap_plugin_melodee_screen screenExtension { screenPaint, screenInput, screenKnobs };
+const melodee_screen_t screenExtension { screenDraw, screenInput, screenControls };
 #endif
 
 } // namespace
@@ -537,7 +541,7 @@ bool readAll (const clap_istream* s, void* data, uint64_t size)
 void askPaint (Plugin& p)
 {
 #if MACHINE_SCREEN
-    if (p.screenHost != nullptr) p.screenHost->request_paint (p.host);
+    if (p.screenHost != nullptr) p.screenHost->redraw (p.host, 0);
 #else
     (void) p;
 #endif
@@ -657,7 +661,7 @@ bool pluginInit (const clap_plugin* plugin)
 {
     auto& p = of (plugin);
 #if MACHINE_SCREEN
-    p.screenHost = static_cast<const clap_host_melodee_screen*> (p.host->get_extension (p.host, CLAP_EXT_MELODEE_SCREEN_HOST));
+    p.screenHost = static_cast<const melodee_screen_host_t*> (p.host->get_extension (p.host, MELODEE_SCREEN_CLAP_HOST));
 #endif
     for (uint32_t i = 0; i < paramCount; ++i)
     {
@@ -772,7 +776,7 @@ clap_process_status pluginProcess (const clap_plugin* plugin, const clap_process
         if (moving && p.sincePaintAsk * 30.0 >= p.engine.sampleRate())
         {
             p.sincePaintAsk = 0;
-            p.screenHost->request_paint (p.host);
+            p.screenHost->redraw (p.host, 0);
         }
     }
 #else
@@ -789,7 +793,7 @@ const void* pluginExtension (const clap_plugin*, const char* id)
     if (std::strcmp (id, CLAP_EXT_NOTE_PORTS) == 0) return &noteExtension;
     if (std::strcmp (id, CLAP_EXT_PRESET_LOAD) == 0 || std::strcmp (id, CLAP_EXT_PRESET_LOAD_COMPAT) == 0) return &presetExtension;
 #if MACHINE_SCREEN
-    if (std::strcmp (id, CLAP_EXT_MELODEE_SCREEN) == 0) return &screenExtension;
+    if (std::strcmp (id, MELODEE_SCREEN_CLAP) == 0) return &screenExtension;
     if (std::strcmp (id, CLAP_EXT_HDSLAVE_TILES) == 0) return &tilesExtension;
 #endif
     return nullptr;
