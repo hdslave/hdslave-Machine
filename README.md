@@ -2,7 +2,16 @@
 
 **An 18-engine multi-machine synthesizer and drum groove voice in the style of Elektron's machines, as a CLAP plug-in for the Akai MPC Sample.**
 
-![Machine custom raised-banner interface running in hdslaveOS](docs/machine-screen.gif)
+<table>
+  <tr>
+    <th width="34%">MPC Sample</th>
+    <th width="66%">macOS and Windows · CLAP</th>
+  </tr>
+  <tr>
+    <td align="center"><a href="docs/machine-screen.gif"><img src="docs/machine-screen.gif" alt="Machine custom raised-banner interface running in hdslaveOS"></a></td>
+    <td align="center"><a href="mac-clap/assets/desktop-preview.gif"><img src="mac-clap/assets/desktop-preview.gif" alt="Machine voice controls and oscilloscope during playback"></a></td>
+  </tr>
+</table>
 
 > **Desktop CLAP version (macOS & Windows):** A separate desktop CLAP build with all MPC screens on one interactive panel lives in [**`mac-clap/`**](mac-clap/) (`cd mac-clap && ./install-macos.sh`). Releases in this repo stay MPC Sample-only for now while the desktop builds are being finalized.
 
