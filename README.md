@@ -153,7 +153,9 @@ KICK's Data I is TONE and its Data J is ACCENT.
   - A key played again before its note-off lets go of the note it was playing. Melodee sends a key's repeats with
     one note-off at the end, so before 0.1.1 a held tone stacked copies of itself (hollow, combed, different each time).
   - Melodee gives every MIDI event of its 128-frame block the block's first frame, so (since 0.1.7):
-    - the same key twice on one frame plays the louder hit once (a tie to the later), on every machine;
+    - the same key twice on one frame plays the louder hit once (a tie to the later), on every machine. On a pitched
+      machine an off between them (a note shorter than the block, then a pad on its key) lets the second play held,
+      as it would alone;
     - a note on and off on one frame (a note shorter than the block, such as a fast arpeggio's) plays to the end of
       the 32-frame step it started in, then releases from where its attack got. Before, a gated machine let it go
       before its first sample, and it was silent;
@@ -235,7 +237,7 @@ tools/bench.sh      # instructions a 128-frame block takes, per patch (callgrind
   pedal, ties and slides (CC 68/84), CC 121, a velocity-0 note-on's own note id, refused future-version states
   and zero sample rates, and a process call with nowhere to write;
 - on the gated machines, the same key twice on one frame (the louder plays, the later quieter hit to the bit not at
-  all), a note on and off on one frame (it sounds about as one held for a block, at any block size, let go by its
+  all; on, off, on plays the second held, as alone), a note on and off on one frame (it sounds about as one held for a block, at any block size, let go by its
   off, the pedal or CC 123), and on the drums, KIT and the gated machines a hit choked on its own frame (CC 120, a
   choke, Melodee's CC 120/123 storm) staying silent, and a ninth note on one frame stealing the first before it sounds;
 - a Data value set at a note's own frame playing in that note (KICK, PLUCK, MODAL, GENDY, FM TONE);

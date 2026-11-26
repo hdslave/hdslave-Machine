@@ -1733,6 +1733,16 @@ void sameFrameReview()
         play (machine, { { 0, At::on, 57, 1.0 }, { 0, At::on, 57, 0.2 }, { 9600, At::off, 57 } }, released);
         play (machine, { { 0, At::on, 57, 1.0 }, { 9600, At::off, 57 } }, releasedAlone);
         CHECK (released == releasedAlone);
+        // On, off, on: the off between lets the second strike through (a sequenced note shorter than the block and a
+        // pad on its key in that block). It plays held, as it would alone, whatever the first one's velocity; the
+        // first, let go before it sounded, gives way to it.
+        std::vector<float> restruck, heldAlone;
+        play (machine, { { 0, At::on, 57, 1.0 }, { 0, At::off, 57 }, { 0, At::on, 57, 0.5 } }, restruck);
+        play (machine, { { 0, At::on, 57, 0.5 } }, heldAlone);
+        const double restruckLevel = rms (restruck, 4800, 12000) / rms (heldAlone, 4800, 12000);
+        if (restruckLevel < 0.6 || restruckLevel > 1.4 || (machine == 0 && restruck != heldAlone))
+            std::printf ("FAIL %s: on, off, on of one key on one frame holds the second at %.3f of it alone\n", machines[machine], restruckLevel), ++failures;
+        ++checks;
 
         // A note on and off on one frame sounds: about as a note held for one 128-frame block does.
         std::vector<float> shortNote, oneBlock, pedal, allOff;

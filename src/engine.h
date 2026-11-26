@@ -271,10 +271,14 @@ public:
         }
         // The key twice on one frame (Melodee gives every MIDI event of a block frame 0): the louder hit alone
         // plays, a tie to the later, as on the drums. A quieter later hit never sounds; a louder one takes the
-        // earlier's place before it has played a sample. Settled before anything is let go or stolen.
+        // earlier's place before it has played a sample. Settled before anything is let go or stolen. An off
+        // between them (on, off, on: a note shorter than the block, then a pad on its key) lets the second through
+        // whatever its velocity, and the first, let go before it sounded, gives way to it: the second plays as it
+        // would alone, not over the first's step and release.
         bool loses = false;
         for (auto& voice : voices)
-            if (voice.on && ! voice.choking && voice.slot < 0 && voice.key == key && struckThisBlock (voice) && rawVelocity (voice) > vel)
+            if (voice.on && ! voice.choking && ! voice.released && voice.slot < 0 && voice.key == key && struckThisBlock (voice)
+                && rawVelocity (voice) > vel)
                 loses = true;
         if (loses) return;
         for (auto& voice : voices)
