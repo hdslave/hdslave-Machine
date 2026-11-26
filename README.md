@@ -15,7 +15,7 @@
 
 > **Desktop CLAP version (macOS & Windows):** A separate desktop CLAP build with all MPC screens on one interactive panel lives in [**`mac-clap/`**](mac-clap/) (`cd mac-clap && ./install-macos.sh`). Releases in this repo stay MPC Sample-only for now while the desktop builds are being finalized.
 
-Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melodee-sample) / [hdslaveOS](https://github.com/hdslave/hdslaveOS) (64-bit ARM Linux, Cortex-A55). Hosts list it as **hdslave Machine** (id `com.hdslave.machine`, version 0.1.6). Switch between 18 distinct synthesis and percussion engines on the fly:
+Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melodee-sample) / [hdslaveOS](https://github.com/hdslave/hdslaveOS) (64-bit ARM Linux, Cortex-A55). Hosts list it as **hdslave Machine** (id `com.hdslave.machine`, version 0.1.7). Switch between 18 distinct synthesis and percussion engines on the fly:
 
 - **FM TONE:** an 8-voice, four-operator FM synthesizer with 8 algorithms and dedicated modulator envelopes.
 - **Seven drum machines:** BD, SD, CP, HH, CY/CB, EFM DRUM, and GND.
@@ -152,6 +152,13 @@ KICK's Data I is TONE and its Data J is ACCENT.
   - CC 123 (all notes off) releases every note; CC 120 (all sound off) stops them at once.
   - A key played again before its note-off lets go of the note it was playing. Melodee sends a key's repeats with
     one note-off at the end, so before 0.1.1 a held tone stacked copies of itself (hollow, combed, different each time).
+  - Melodee gives every MIDI event of its 128-frame block the block's first frame, so (since 0.1.7):
+    - the same key twice on one frame plays the louder hit once (a tie to the later), on every machine;
+    - a note on and off on one frame (a note shorter than the block, such as a fast arpeggio's) plays to the end of
+      the 32-frame step it started in, then releases from where its attack got. Before, a gated machine let it go
+      before its first sample, and it was silent;
+    - a note choked on the frame it was struck (CC 120 with it, a host's choke, a note stolen by a ninth) never
+      sounds. Before, it played its 3 ms choke fade at full level.
   - A note-off or choke with a host's note id lets go of that note alone; Melodee's (no id) of all the key's.
 - **Data at a note's own frame** (a step's automation, ahead of its note) play in that note: KICK's ACCENT, GENDY's
   POINTS, PLUCK's pick and MODAL's mallet take the step's value, not the step before's (0.1.1).
@@ -162,7 +169,8 @@ KICK's Data I is TONE and its Data J is ACCENT.
   - Going into or out of bypass (fully open and flat) crossfades across a 32-frame step.
 - **TERRAIN and PHASE** start mid-wave, so they fade in over 1 ms rather than click. VOX and PULSAR (unipolar
   pulses) settle their offset over the first 10 ms or so, as an AC-coupled output does.
-- **A voice choked by a new machine** plays out its 3 ms fade with its own sound, never the new machine's.
+- **A voice choked by a new machine** plays out its 3 ms fade with its own sound, never the new machine's. One struck
+  on that frame never sounds.
 
 ## Presets
 
@@ -226,6 +234,10 @@ tools/bench.sh      # instructions a 128-frame block takes, per patch (callgrind
 - two hits on one frame (the louder plays; KIT's closed hat beats an open one either way round), the sustain
   pedal, ties and slides (CC 68/84), CC 121, a velocity-0 note-on's own note id, refused future-version states
   and zero sample rates, and a process call with nowhere to write;
+- on the gated machines, the same key twice on one frame (the louder plays, the later quieter hit to the bit not at
+  all), a note on and off on one frame (it sounds about as one held for a block, at any block size, let go by its
+  off, the pedal or CC 123), and on the drums, KIT and the gated machines a hit choked on its own frame (CC 120, a
+  choke, Melodee's CC 120/123 storm) staying silent, and a ninth note on one frame stealing the first before it sounds;
 - a Data value set at a note's own frame playing in that note (KICK, PLUCK, MODAL, GENDY, FM TONE);
 - with the screen built in, the page: it paints, K1–K3 follow the cursor, edits change parameters, and the machine
   changes from its own row.
@@ -241,7 +253,7 @@ meant to keep the sound must leave them as they are; `make fingerprint-update` r
 |---|---|---|
 | Eight held FM voices with everything busy | 210,000 | about 4.4% |
 | An FM chord struck again each second, releasing the last | 87,000 | about 1.8% |
-| A busy KIT groove | 47,000 | about 1.0% |
+| A busy KIT groove | 45,000 | about 0.9% |
 | Silence | 3,000 | about 0.06% |
 
 With eight voices each (the filter on), the second barrage runs from 2.4% to 3.6% of a core:

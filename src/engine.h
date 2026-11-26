@@ -155,6 +155,8 @@ public:
     {
         for (auto& voice : voices)
             voice = Voice {};
+        for (auto& due : releaseDue)
+            due = false;
         blockNow = 0;
         lfoPhase = 0;
         subLeft = 0;
@@ -267,6 +269,16 @@ public:
                 }
             if (slid) return;
         }
+        // The key twice on one frame (Melodee gives every MIDI event of a block frame 0): the louder hit alone
+        // plays, a tie to the later, as on the drums. A quieter later hit never sounds; a louder one takes the
+        // earlier's place before it has played a sample. Settled before anything is let go or stolen.
+        bool loses = false;
+        for (auto& voice : voices)
+            if (voice.on && ! voice.choking && voice.slot < 0 && voice.key == key && struckThisBlock (voice) && rawVelocity (voice) > vel)
+                loses = true;
+        if (loses) return;
+        for (auto& voice : voices)
+            if (voice.on && ! voice.choking && voice.slot < 0 && voice.key == key && struckThisBlock (voice)) voice.on = false;
         // The key again while it still sounds (Melodee moves a pending note-off past the key's new note-on, so none
         // comes between): the note it was playing is let go as its note-off would let it go, never left held under
         // the new one (two of a held tone on one pitch would comb, piling up with each repeat). The pedal does not
@@ -299,7 +311,7 @@ public:
             {
                 voice.released = true;
                 voice.sustained = false;
-                if (gatedVoice (voice) && voice.ampStage != Voice::ended) voice.ampStage = Voice::release;
+                if (gatedVoice (voice)) letGo (voice);
             }
     }
 
@@ -423,6 +435,8 @@ private:
     // Each voice's note id from the host (-1: none given), set as it starts. Kept here rather than in Voice, whose
     // layout (and the render loop's code over it) stays as it was.
     int32_t noteIds[voiceCount] {};
+    // Each voice let go before it had played a sample (letGo): it releases where the 32-frame step it started in ends.
+    bool releaseDue[voiceCount] {};
 
     Voice& pick()
     {
@@ -466,12 +480,12 @@ private:
                 voice.released = true;
                 if (! gatedVoice (voice)) continue;
                 if (pedalDown && ! force) voice.sustained = true;
-                else if (voice.ampStage != Voice::ended) voice.ampStage = Voice::release;
+                else letGo (voice);
             }
             else if (force && voice.sustained) // the key struck again: the pedal no longer holds its earlier note
             {
                 voice.sustained = false;
-                if (gatedVoice (voice) && voice.ampStage != Voice::ended) voice.ampStage = Voice::release;
+                if (gatedVoice (voice)) letGo (voice);
             }
         }
     }
@@ -481,8 +495,18 @@ private:
             if (voice.on && voice.sustained)
             {
                 voice.sustained = false;
-                if (gatedVoice (voice) && voice.ampStage != Voice::ended) voice.ampStage = Voice::release;
+                if (gatedVoice (voice)) letGo (voice);
             }
+    }
+    // A gated voice's amp to RELEASE. One that has played nothing yet (its note on and off on one frame, as Melodee
+    // sends a note shorter than its 128-frame block) first plays to the end of the 32-frame step it started in, so a
+    // short note sounds rather than being let go at the silence its attack starts from; the step's end is on the
+    // engine's own grid, the same whatever the host's blocks.
+    void letGo (Voice& voice)
+    {
+        if (voice.ampStage == Voice::ended) return;
+        if (voice.fresh) releaseDue[&voice - voices] = true;
+        else voice.ampStage = Voice::release;
     }
 
     // Whether a voice's slow coefficients (Voice::cacheF/cacheI, and its aux filter's setting) no longer answer
@@ -503,6 +527,11 @@ private:
     void chokeVoice (Voice& voice)
     {
         if (voice.choking) return;
+        if (struckThisBlock (voice)) // choked on the frame it was struck (CC 120 with the note, a steal): it never sounds
+        {
+            voice.on = false;
+            return;
+        }
         voice.sustained = false;
         const Patch& patch = voice.slot >= 0 ? slots[voice.slot] : main;
         if (! voice.owns && patch.kind == voice.kind) voice.own = patch, voice.owns = true;
@@ -519,6 +548,7 @@ private:
         voice.slot = slot;
         voice.key = key;
         noteIds[&voice - voices] = noteId;
+        releaseDue[&voice - voices] = false;
         voice.velocity = vel;
         voice.noteHz = 440.0f * std::exp2 (((float) (slot >= 0 ? slotBaseKey : key) - 69.0f) / 12.0f); // a KIT slot at its own pitch
         voice.order = ++started;
@@ -842,6 +872,12 @@ private:
         voice.filter = f;
         voice.tail = tailL;
         voice.meter = std::max (peak, voice.meter * 0.85f);
+        // Let go before it had played a sample: it has played its first step now, and releases from where it got.
+        if (subEnd && releaseDue[&voice - voices])
+        {
+            releaseDue[&voice - voices] = false;
+            if (voice.ampStage != Voice::ended) voice.ampStage = Voice::release;
+        }
         // Ended (its machine quiet, its amp closed, or choked away): it stops where the sub-block does, whatever the
         // host's blocks, so the last samples are the same however they are cut.
         // A machine that is done still waits for a resonant filter's ringing to die away.

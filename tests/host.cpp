@@ -1686,6 +1686,125 @@ void reviewFixes()
         CHECK (eight > 0.5 && eight < 3.2);
     }
 }
+
+// The 0.1.7 review's same-frame findings (every MIDI event of a block arrives at frame 0 in Melodee):
+// - the same key twice on one frame plays the louder hit once on the gated machines too (a tie to the later), as
+//   on the drums: before, the later, quieter hit played;
+// - a note on and off on one frame (Melodee sends a note shorter than its 128-frame block that way) plays to the
+//   end of the 32-frame step it started in, then releases: before, the gated machines let it go before it had
+//   played a sample, and it was silent;
+// - a note choked on the frame it was struck (CC 120, a host's choke, a stolen voice) never sounds: before, it
+//   played its 3 ms choke fade at full level (a BD hit with CC 120 peaked at 0.62).
+void sameFrameReview()
+{
+    const int gated[] = { 0, 9, 10, 11, 12, 13, 14, 15, 16 }; // the machines whose amp hears note-off on their own
+    std::vector<float> l, r;
+    const std::function<void (int, const std::vector<At>&, std::vector<float>&)> play = [&] (int machine, const std::vector<At>& events,
+                                                                                            std::vector<float>& out) {
+        Instance m;
+        m.setup ({ { "Machine", (double) machine } });
+        std::vector<float> right;
+        m.render (0.5, events, out, right);
+    };
+    for (int machine : gated)
+    {
+        // The louder of two hits of one key on one frame, either way round.
+        std::vector<float> loud, quiet, loudQuiet, quietLoud, tie, once, released, releasedAlone;
+        play (machine, { { 0, At::on, 57, 1.0 } }, loud);
+        play (machine, { { 0, At::on, 57, 0.2 } }, quiet);
+        play (machine, { { 0, At::on, 57, 1.0 }, { 0, At::on, 57, 0.2 } }, loudQuiet);
+        play (machine, { { 0, At::on, 57, 0.2 }, { 0, At::on, 57, 1.0 } }, quietLoud);
+        play (machine, { { 0, At::on, 57, 0.6 }, { 0, At::on, 57, 0.6 } }, tie);
+        play (machine, { { 0, At::on, 57, 0.6 } }, once);
+        const double loudLevel = rms (loud, 0, 4800);
+        CHECK (rms (quiet, 0, 4800) < 0.5 * loudLevel); // (the velocities are heard)
+        if (loudQuiet != loud) // the quieter later hit never sounds: the loud hit alone, to the bit
+            std::printf ("FAIL %s: a quieter hit of the key on the same frame plays (%.3f of the loud hit)\n", machines[machine],
+                         rms (loudQuiet, 0, 4800) / loudLevel), ++failures;
+        ++checks;
+        // The later hit starts with other noise than a lone one: MODAL's and PLUCK's strikes vary by about a fifth
+        // with it, so these allow that (the quiet hit is a fifth of the loud one; a tie stacked, about twice one).
+        const double quietLoudLevel = rms (quietLoud, 0, 4800) / loudLevel, tieLevel = rms (tie, 0, 4800) / rms (once, 0, 4800);
+        if (quietLoudLevel < 0.6 || tieLevel > 1.4 || tieLevel < 0.6) // the loud one, and a tie once
+            std::printf ("FAIL %s: quiet then loud on one frame at %.3f of the loud hit, a tie at %.3f of one\n", machines[machine], quietLoudLevel,
+                         tieLevel), ++failures;
+        ++checks;
+        // On, on, off: the one off lets go of the louder hit that plays.
+        play (machine, { { 0, At::on, 57, 1.0 }, { 0, At::on, 57, 0.2 }, { 9600, At::off, 57 } }, released);
+        play (machine, { { 0, At::on, 57, 1.0 }, { 9600, At::off, 57 } }, releasedAlone);
+        CHECK (released == releasedAlone);
+
+        // A note on and off on one frame sounds: about as a note held for one 128-frame block does.
+        std::vector<float> shortNote, oneBlock, pedal, allOff;
+        play (machine, { { 0, At::on, 57, 1.0 }, { 0, At::off, 57 } }, shortNote);
+        play (machine, { { 0, At::on, 57, 1.0 }, { 128, At::off, 57 } }, oneBlock);
+        const double shortLevel = rms (shortNote, 0, 4800), blockLevel = rms (oneBlock, 0, 4800);
+        if (! (blockLevel > 0.01 && shortLevel > 0.5 * blockLevel && shortLevel < 1.05 * blockLevel))
+            std::printf ("FAIL %s: a note on and off on one frame at %.4f, one held a block at %.4f\n", machines[machine], shortLevel, blockLevel), ++failures;
+        ++checks;
+        CHECK (peak (shortNote, 24000) < 0.002); // and it ends
+        // Let go by the pedal lifting on that frame, or by CC 123 there: the same.
+        play (machine, { { 0, At::midi, 0, 0, "", { 0xb0, 64, 127 } }, { 0, At::on, 57, 1.0 }, { 0, At::off, 57 },
+                         { 0, At::midi, 0, 0, "", { 0xb0, 64, 0 } } }, pedal);
+        CHECK (pedal == shortNote);
+        play (machine, { { 0, At::on, 57, 1.0 }, { 0, At::midi, 0, 0, "", { 0xb0, 123, 0 } } }, allOff);
+        CHECK (allOff == shortNote);
+        // The same at any block size, off the 32-frame grid too.
+        uint64_t first = 0;
+        for (uint32_t block : { 128u, 1u, 37u, 4096u })
+        {
+            Instance m;
+            m.setup ({ { "Machine", (double) machine } });
+            std::vector<float> bl, br;
+            m.render (0.4, { { 1000, At::on, 57, 1.0 }, { 1000, At::off, 57 }, { 3001, At::on, 60, 0.7 }, { 3001, At::off, 60 } }, bl, br, block);
+            const uint64_t h = hash (bl, br);
+            if (block == 128u)
+            {
+                first = h;
+                CHECK (rms (bl, 1000, 3000) > 0.01);
+            }
+            else if (h != first) std::printf ("FAIL %s: a note on and off on one frame differs at block %u\n", machines[machine], block), ++failures;
+            ++checks;
+        }
+    }
+
+    // Choked on the frame it was struck, a hit never sounds: CC 120, a host's choke, and Melodee's silence (CC 120
+    // and 123 on all 16 channels), on the drums, KIT, KICK and the gated machines.
+    for (int machine : { 1, 8, 17, 0, 16, 12 })
+    {
+        const int key = machine == 8 || machine == 17 || machine == 1 ? 36 : 57;
+        std::vector<float> cc120, choke, silence, later;
+        play (machine, { { 0, At::on, key, 1.0 }, { 0, At::midi, 0, 0, "", { 0xb0, 120, 0 } } }, cc120);
+        play (machine, { { 1000, At::on, key, 1.0 }, { 1000, At::choke, key } }, choke);
+        std::vector<At> storm { { 0, At::on, key, 1.0 } };
+        for (uint8_t c = 0; c < 16; ++c)
+            storm.push_back ({ 0, At::midi, 0, 0, "", { (uint8_t) (0xb0 | c), 120, 0 } }), storm.push_back ({ 0, At::midi, 0, 0, "", { (uint8_t) (0xb0 | c), 123, 0 } });
+        play (machine, storm, silence);
+        if (peak (cc120) != 0.0 || peak (choke) != 0.0 || peak (silence) != 0.0)
+            std::printf ("FAIL %s: a hit choked on its own frame sounds (CC 120 %.3f, choke %.3f, silence %.3f)\n", machines[machine], peak (cc120),
+                         peak (choke), peak (silence)), ++failures;
+        ++checks;
+        // A frame later it has sounded: it fades over the 3 ms choke and is gone by the 32-frame step after it.
+        play (machine, { { 0, At::on, key, 1.0 }, { 1, At::midi, 0, 0, "", { 0xb0, 120, 0 } } }, later);
+        CHECK (peak (later, 0, 160) > 0.0 && peak (later, 192) == 0.0);
+    }
+    // Nine notes on one frame on FM TONE: the oldest is stolen before it sounds, so the other eight play alone.
+    {
+        std::vector<At> nine, eight;
+        for (int k = 0; k < 9; ++k)
+        {
+            nine.push_back ({ 0, At::on, 48 + 3 * k, 0.5 });
+            if (k > 0) eight.push_back ({ 0, At::on, 48 + 3 * k, 0.5 });
+        }
+        std::vector<float> withNine, withEight;
+        play (0, nine, withNine);
+        play (0, eight, withEight);
+        double off = 0.0;
+        for (size_t i = 0; i < withNine.size(); ++i) off = std::max (off, (double) std::fabs (withNine[i] - withEight[i]));
+        if (off > 1e-5) std::printf ("FAIL FM TONE: a note stolen on the frame it was struck sounds (%.4f off the eight)\n", off), ++failures;
+        ++checks;
+    }
+}
 } // namespace
 
 int main (int argc, char** argv)
@@ -1714,6 +1833,7 @@ int main (int argc, char** argv)
     repeatedKeys();
     dataAtNote();
     reviewFixes();
+    sameFrameReview();
     blockSizes();
     blockSizesBarrage();
     fuzz();
