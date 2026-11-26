@@ -1778,6 +1778,33 @@ void sameFrameReview()
         }
     }
 
+    // On, off, on in KIT: a VOX or PULSAR slot (gated, as on their own) plays the second hit held, as it would alone.
+    // On a one-shot slot (BD) the off means nothing, so the louder first hit still plays, to the bit as alone.
+    for (double slotMachine : { 9.0, 10.0, 0.0 })
+    {
+        const std::function<void (const std::vector<At>&, std::vector<float>&)> kitPlay = [&] (const std::vector<At>& events, std::vector<float>& out) {
+            Instance m;
+            m.setup ({ { "Machine", 8 } });
+            m.setup ({ { "Kit 1 Machine", slotMachine } });
+            std::vector<float> right;
+            m.render (0.5, events, out, right);
+        };
+        std::vector<float> restruck, alone;
+        kitPlay ({ { 0, At::on, 36, 1.0 }, { 0, At::off, 36 }, { 0, At::on, 36, 0.5 } }, restruck);
+        if (slotMachine == 0.0)
+        {
+            kitPlay ({ { 0, At::on, 36, 1.0 } }, alone);
+            CHECK (restruck == alone);
+            continue;
+        }
+        kitPlay ({ { 0, At::on, 36, 0.5 } }, alone);
+        const double level = rms (restruck, 4800, 12000) / rms (alone, 4800, 12000);
+        if (! (rms (alone, 4800, 12000) > 0.01 && level > 0.6 && level < 1.4))
+            std::printf ("FAIL KIT %s slot: on, off, on on one frame holds the second at %.3f of it alone\n", slotMachine == 9.0 ? "VOX" : "PULSAR",
+                         level), ++failures;
+        ++checks;
+    }
+
     // Choked on the frame it was struck, a hit never sounds: CC 120, a host's choke, and Melodee's silence (CC 120
     // and 123 on all 16 channels), on the drums, KIT, KICK and the gated machines.
     for (int machine : { 1, 8, 17, 0, 16, 12 })

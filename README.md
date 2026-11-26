@@ -125,7 +125,8 @@ KICK's Data I is TONE and its Data J is ACCENT.
 - MODAL and PLUCK slots ring out as one-shots when you lift the pad.
 - Each slot has its own machine (BD to GND), Data A–H, LEVEL and PAN.
 - A slot's new hit chokes only itself. A closed HH also chokes the open ones. On one frame the louder hit on a
-  slot plays, and a closed hat beats an open one struck with it, whichever came first.
+  slot plays, and a closed hat beats an open one struck with it, whichever came first. On a VOX or PULSAR slot an
+  off between two hits on one frame lets the second play held, as on the pitched machines.
 - The default kit: kick, snare, clap, closed and open hats, cymbal, an FM tom, a ground tone.
 
 ## The voice section

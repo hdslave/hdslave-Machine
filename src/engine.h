@@ -205,13 +205,15 @@ public:
             // hat of this block beats an open one whichever order they came in. A hit that loses that way
             // never sounds and chokes nothing, so the losing is settled before anything is choked. A hit
             // struck in an earlier block that rendered nothing after it is no same-frame hit: it is choked
-            // below like any ringing hit, never dropped silently (struckThisBlock, not fresh alone).
+            // below like any ringing hit, never dropped silently (struckThisBlock, not fresh alone). On a gated
+            // slot (VOX, PULSAR) an off between two hits lets the second through, as on the pitched machines: the
+            // first, let go before it sounded, gives way below. A one-shot slot's off means nothing.
             bool loses = false;
             for (auto& voice : voices)
             {
                 if (! voice.on || voice.choking || voice.slot < 0 || ! struckThisBlock (voice)) continue;
                 const bool voiceOpen = voice.kind == hh && v[kitId ((uint32_t) voice.slot, ParamId::kitData)] >= 0.5f;
-                if (voice.slot == slot && rawVelocity (voice) > vel) loses = true;
+                if (voice.slot == slot && ! (voice.released && gatedVoice (voice)) && rawVelocity (voice) > vel) loses = true;
                 else if (openHat && voice.kind == hh && ! voiceOpen) loses = true;
             }
             if (loses) return;
