@@ -15,6 +15,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
+#include <fstream>
+#include <iterator>
 #include <functional>
 #include <map>
 #include <random>
@@ -562,15 +564,13 @@ void kit (const char* out)
     std::vector<float> l, r;
     m.setup ({ { "Machine", 8 } }, &events);
     CHECK (events.values.empty()); // KIT keeps Data A-H as they were (its sounds are the slots')
-    // Each of its keys plays its slot; other keys nothing.
+    // Each of its keys plays its slot (the other pads and the banks: padsAndBanks).
     for (int k = 36; k < 44; ++k)
     {
         m.render (0.4, { { 0, At::on, k, 1.0 } }, l, r);
         CHECK (peak (l) > 0.02 && finite (l));
         m.render (2.0, {}, l, r);
     }
-    m.render (0.4, { { 0, At::on, 44, 1.0 }, { 0, At::on, 60, 1.0 }, { 0, At::on, 35, 1.0 } }, l, r);
-    CHECK (peak (l) == 0.0);
     // Pan: hard left leaves the right side silent.
     m.setup ({ { "Kit 1 Pan", -1.0 } });
     m.render (0.4, { { 0, At::on, 36, 1.0 } }, l, r);
@@ -1842,6 +1842,86 @@ void sameFrameReview()
         ++checks;
     }
 }
+// The pads (0.2.0). The drum map is in the binary as Melodee reads it, so a track on Machine plays its 16 pads as
+// keys 36-51 and its - / + move the bank (B 52-67, C 68-83, D 84-99). Machine has no step pads: every key that
+// sounded before 0.2.0 plays as it did (the fingerprints hold that to the bit), and KIT's keys that were silent play
+// its slots: pad (key - 36) mod 16 plays slot pad mod 8 in every bank, the very same hit.
+void padsAndBanks (const char* path)
+{
+    std::ifstream f (path, std::ios::binary);
+    const std::string bytes ((std::istreambuf_iterator<char> (f)), std::istreambuf_iterator<char>());
+    const std::string mark = "{\"pad_layout\":\"drums\"";
+    const size_t at = bytes.find (mark);
+    CHECK (at != std::string::npos);
+    const std::string json = at == std::string::npos ? std::string() : bytes.substr (at, bytes.find ('\0', at) - at);
+    // Melodee reads every map in the library: any other copy (a sanitizer build keeps two) is this one.
+    for (size_t p = bytes.find (mark, at + 1); at != std::string::npos && p != std::string::npos; p = bytes.find (mark, p + 1))
+        CHECK (bytes.compare (p, json.size() + 1, json.c_str(), json.size() + 1) == 0);
+    int notes = 0, names = 0;
+    for (int k = 0; k < 128; ++k)
+    {
+        const std::string note = "\"note\":" + std::to_string (k) + "}";
+        size_t n = 0;
+        for (size_t p = json.find (note); p != std::string::npos; p = json.find (note, p + 1)) ++n;
+        CHECK (n == (k >= 36 && k <= 51 ? 1u : 0u));
+        notes += (int) n;
+    }
+    for (size_t p = json.find ("\"name\":\""); p != std::string::npos; p = json.find ("\"name\":\"", p + 1)) ++names;
+    CHECK (notes == 16 && names == 17); // the map's own name and the sixteen pads'
+    CHECK (json.find ("\"name\":\"hdslave Machine\"") != std::string::npos);
+    CHECK (json.find ("Kit 1 C2") != std::string::npos && json.find ("Kit 8 D#3") != std::string::npos);
+    CHECK (json.size() > 2 && json.compare (json.size() - 3, 3, "}}}") == 0); // whole, the C string's end its end
+    int depth = 0;
+    for (char c : json) depth += c == '{' ? 1 : c == '}' ? -1 : 0;
+    CHECK (depth == 0);
+
+    // Two fresh instances given `a` and `b`: bit for bit the same.
+    const auto same = [] (const std::vector<std::pair<std::string, double>>& values, int a, int b, bool off) {
+        std::vector<float> l1, r1, l2, r2;
+        Instance x, y;
+        x.setup (values);
+        y.setup (values);
+        std::vector<At> ea { { 0, At::on, a, 0.9 } }, eb { { 0, At::on, b, 0.9 } };
+        if (off) ea.push_back ({ 24000, At::off, a }), eb.push_back ({ 24000, At::off, b });
+        x.render (1.0, ea, l1, r1);
+        y.render (1.0, eb, l2, r2);
+        return peak (l1) > 0.01 && l1 == l2 && r1 == r2;
+    };
+    // KIT: pad p plays slot p mod 8 in every bank, the very same hit; pads 9-16 (silent before) the eight again.
+    for (int pad = 0; pad < 16; ++pad)
+        for (int bank : { 0, 1, 2, 3, -1, -2 })
+            if (bank != 0 || pad >= 8) CHECK (same ({ { "Machine", 8 } }, 36 + pad + 16 * bank, 36 + pad % 8, false));
+    CHECK (same ({ { "Machine", 8 } }, 127, 39, false) && same ({ { "Machine", 8 } }, 0, 40, false));
+    // A held KIT slot (VOX, LENGTH INF: until its note-off) let go by another bank's key for it, as by its own.
+    CHECK (same ({ { "Machine", 8 }, { "Kit 1 Machine", 9 } }, 52, 36, true));
+    CHECK (same ({ { "Machine", 8 }, { "Kit 1 Machine", 9 } }, 44, 36, true));
+    {
+        Instance m, ref, held;
+        std::vector<float> l, r, rl, rr, hl, hr;
+        for (Instance* i : { &m, &ref, &held }) i->setup ({ { "Machine", 8 }, { "Kit 1 Machine", 9 } });
+        m.render (1.0, { { 0, At::on, 36, 1.0 }, { 4800, At::off, 68 } }, l, r);   // 68: slot 1's pad in bank C
+        ref.render (1.0, { { 0, At::on, 36, 1.0 }, { 4800, At::off, 36 } }, rl, rr);
+        held.render (1.0, { { 0, At::on, 36, 1.0 } }, hl, hr);
+        CHECK (l == rl && l != hl); // its off lets the note go as 36's own does
+        m.render (0.5, { { 0, At::on, 84, 1.0 }, { 4800, At::choke, 44 } }, l, r);
+        CHECK (peak (l, 1000, 4800) > 0.01 && peak (l, 4800 + 480) == 0.0); // and a choke, from any bank
+    }
+    // Every other machine plays every key as before 0.2.0: a key at its own pitch, bank B's first pad (52) 16
+    // semitones above pad 1, not an octave.
+    {
+        Instance m;
+        std::vector<float> l, r;
+        m.setup (pureSine);
+        for (int key : { 52, 68, 84, 99, 20, 60 })
+        {
+            const double hz = 440.0 * std::pow (2.0, (key - 69) / 12.0);
+            m.render (1.0, { { 0, At::on, key, 1.0 } }, l, r);
+            CHECK (std::fabs (frequency (l, 2400, 48000, 48000) / hz - 1.0) < 0.004);
+            m.render (1.0, { { 0, At::off, key } }, l, r);
+            CHECK (peak (l, 24000) == 0.0);
+        }
+    }
+}
 } // namespace
 
 int main (int argc, char** argv)
@@ -1859,6 +1939,7 @@ int main (int argc, char** argv)
     fmTone (argv[2]);
     drums (argv[2]);
     kit (argv[2]);
+    padsAndBanks (argv[1]);
     barrage (argv[2]);
     struckAmpEnvelopes();
     screen();

@@ -15,7 +15,7 @@
 
 > **Desktop CLAP version (macOS & Windows):** A separate desktop CLAP build with all MPC screens on one interactive panel lives in [**`mac-clap/`**](mac-clap/) (`cd mac-clap && ./install-macos.sh`). Releases in this repo stay MPC Sample-only for now while the desktop builds are being finalized.
 
-Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melodee-sample) / [hdslaveOS](https://github.com/hdslave/hdslaveOS) (64-bit ARM Linux, Cortex-A55). Hosts list it as **hdslave Machine** (id `com.hdslave.machine`, version 0.1.7). Switch between 18 distinct synthesis and percussion engines on the fly:
+Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melodee-sample) / [hdslaveOS](https://github.com/hdslave/hdslaveOS) (64-bit ARM Linux, Cortex-A55). Hosts list it as **hdslave Machine** (id `com.hdslave.machine`, version 0.2.0). Switch between 18 distinct synthesis and percussion engines on the fly:
 
 - **FM TONE:** an 8-voice, four-operator FM synthesizer with 8 algorithms and dedicated modulator envelopes.
 - **Seven drum machines:** BD, SD, CP, HH, CY/CB, EFM DRUM, and GND.
@@ -120,7 +120,8 @@ KICK's Data I is TONE and its Data J is ACCENT.
 - **VOX and PULSAR** have a LENGTH of their own. Its top is INF, held until note-off.
 
 **KIT**
-- Notes 36–43 (a Melodee drum track's first eight pads) play slots 1–8.
+- Pads 1–8 (notes 36–43) play slots 1–8, and pads 9–16 (44–51) play them again. Every bank plays the same eight
+  (see [Pads and banks](#pads-and-banks)).
 - A slot may also be MODAL, PLUCK, VOX, PULSAR or KICK, played at C3 moved by its TUNE.
 - MODAL and PLUCK slots ring out as one-shots when you lift the pad.
 - Each slot has its own machine (BD to GND), Data A–H, LEVEL and PAN.
@@ -128,6 +129,31 @@ KICK's Data I is TONE and its Data J is ACCENT.
   slot plays, and a closed hat beats an open one struck with it, whichever came first. On a VOX or PULSAR slot an
   off between two hits on one frame lets the second play held, as on the pitched machines.
 - The default kit: kick, snare, clap, closed and open hats, cymbal, an FM tom, a ground tone.
+
+## Pads and banks
+
+Machine has no sequencer: the track's pads play it. Since 0.2.0 it carries a drum map, so hdslaveOS plays its
+track's 16 pads as Drums: pads A01–A16 send notes 36–51 whatever the track's octave, key or scale, and the Keys page
+names them ("Kit 1 C2" … "Kit 8 D#3": the KIT slot and the note each pad plays). − / + then move the **bank**
+(B 52–67, C 68–83, D 84–99) instead of the octave.
+
+Machine has no step pads, so a note plays what it played before 0.2.0; only notes that were silent changed:
+
+| Machine | Bank A (36–51) | Banks B–D and any other note |
+|---|---|---|
+| FM TONE, TERRAIN, PHASE, VOX, MODAL, PLUCK, GENDY, PULSAR, ORGAN | C2–D#3 | Every note at its own pitch, as before: bank B's pad 1 (52) is E3, 16 semitones above pad 1 |
+| KICK on its own | PITCH at C2, a semitone a note | The same, as before |
+| BD, SD, CP, HH, CY/CB, EFM DRUM, GND on their own | The drum | The drum, as before |
+| KIT | Pads 1–8 slots 1–8; pads 9–16 slots 1–8 again (new) | Pad (note − 36) mod 16 plays slot pad mod 8, the same hit (new) |
+
+What it replaced, in 0.2.0:
+- KIT played 36–43 and nothing else. Pads 9–16, every other bank and every other note were silent. They now play
+  one of the eight slots, the very same hit as bank A's pad for it.
+- On KIT, a note-off and a choke read their note the same way, so a held VOX or PULSAR slot lets go on any bank's
+  key for it.
+- Every other machine plays every note exactly as 0.1.7 did, to the bit.
+- Saved projects keep their parameters, presets and state.
+- The desktop build in `mac-clap/` keeps its own copy of the engine: KIT plays 36–43 only there. It has no drum map.
 
 ## The voice section
 
@@ -290,4 +316,5 @@ cache it measured 730,542. The cache removes about a quarter in that shape, agai
 Copy `build/Machine.clap` to `Melodee/Plugins/hdslave/hdslave Machine.clap` on the card. Then pick it on an
 empty track: Stage, Plugin, hdslave, hdslave Machine. It needs only libc and libm.
 
-Not tried on the MPC Sample yet.
+Not tried on the MPC Sample yet. The 0.2.0 drum map and banks are checked by the host tests, and the map by
+Melodee's own reader; nobody has played them on the MPC.

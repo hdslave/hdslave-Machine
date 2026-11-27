@@ -53,6 +53,26 @@ const clap_plugin_descriptor descriptor {
     features,
 };
 
+// The pads as Melodee reads them from a plug-in's library: with this, a plug-in track on Machine plays its pads as
+// notes 36-51 (pads A01-A16) whatever the key or octave, and names them; its - / + move the bank (B 52-67, C 68-83,
+// D 84-99), which Engine::playKey reads as an octave. Each name says what the pad plays: KIT's slot (pads 9-16 the
+// eight again) and, on the other machines, the note. Kept in the binary by padsJson() below.
+[[gnu::used]] const char padMapJson[] =
+    "{\"pad_layout\":\"drums\",\"name\":\"hdslave Machine\",\"levels\":{"
+    "\"p1\":{\"name\":\"Kit 1 C2\",\"note\":36},\"p2\":{\"name\":\"Kit 2 C#2\",\"note\":37},"
+    "\"p3\":{\"name\":\"Kit 3 D2\",\"note\":38},\"p4\":{\"name\":\"Kit 4 D#2\",\"note\":39},"
+    "\"p5\":{\"name\":\"Kit 5 E2\",\"note\":40},\"p6\":{\"name\":\"Kit 6 F2\",\"note\":41},"
+    "\"p7\":{\"name\":\"Kit 7 F#2\",\"note\":42},\"p8\":{\"name\":\"Kit 8 G2\",\"note\":43},"
+    "\"p9\":{\"name\":\"Kit 1 G#2\",\"note\":44},\"p10\":{\"name\":\"Kit 2 A2\",\"note\":45},"
+    "\"p11\":{\"name\":\"Kit 3 A#2\",\"note\":46},\"p12\":{\"name\":\"Kit 4 B2\",\"note\":47},"
+    "\"p13\":{\"name\":\"Kit 5 C3\",\"note\":48},\"p14\":{\"name\":\"Kit 6 C#3\",\"note\":49},"
+    "\"p15\":{\"name\":\"Kit 7 D3\",\"note\":50},\"p16\":{\"name\":\"Kit 8 D#3\",\"note\":51}}}";
+const char* padsJson()
+{
+    const char* volatile json = padMapJson;
+    return json;
+}
+
 struct Plugin
 {
     clap_plugin clap {};
@@ -682,6 +702,7 @@ const clap_plugin_note_ports noteExtension { noteCount, noteGet };
 bool pluginInit (const clap_plugin* plugin)
 {
     auto& p = of (plugin);
+    (void) padsJson();
 #if MACHINE_SCREEN
     p.screenHost = static_cast<const melodee_screen_host_t*> (p.host->get_extension (p.host, MELODEE_SCREEN_CLAP_HOST));
 #endif

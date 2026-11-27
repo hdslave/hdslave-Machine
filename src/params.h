@@ -15,7 +15,7 @@
 #include <strings.h>
 
 #ifndef MACHINE_VERSION
-#define MACHINE_VERSION "0.1.7"
+#define MACHINE_VERSION "0.2.0"
 #endif
 
 namespace machine
@@ -44,7 +44,17 @@ constexpr int kickBaseKey = 36; // KICK on its own: PITCH at C2 (a drum track's 
 constexpr uint32_t dataCount = 10; // Data A-J: I and J only for machines with more than eight (KICK)
 constexpr int slotBaseKey = 48; // a pitched machine in a KIT slot plays C3, moved by its TUNE
 constexpr uint32_t kitSlots = 8;
-constexpr int kitFirstKey = 36; // KIT: notes 36-43 play slots 1-8 (a Melodee drum track's first eight pads)
+constexpr int kitFirstKey = 36; // KIT: slot 1's note; every pad plays slot pad mod 8, in every bank (playKey below)
+
+// The pads (src/machine.cpp's drum map): hdslaveOS plays a track's 16 pads as keys 36-51 (bank A), and its - / +
+// move the bank, B 52-67, C 68-83, D 84-99. Machine has no step pads, so every key that sounded before 0.2.0 plays
+// as it did: the pitched machines and KICK at the key's own pitch, the drums alone their hit (the key seeding its
+// noise). Only KIT reads a key as a pad, (key - 36) mod 16, and plays slot pad mod 8 in every bank: 36-43 its
+// slots as ever, and every key that was silent (pads 9-16, the other banks) one of the eight, the same hit.
+constexpr int padFirstKey = 36, padCount = 16;
+inline int padOf (int key) { return ((key - padFirstKey) % padCount + padCount) % padCount; } // 0..15
+// The key a machine plays for an incoming key; note-on, note-off, choke and CC 84 all read it.
+inline int playKey (uint8_t kind, int key) { return kind == kit ? kitFirstKey + padOf (key) % (int) kitSlots : key; }
 
 // What a value is, for its text and for the engine.
 enum class Unit : uint8_t {

@@ -191,9 +191,12 @@ public:
     {
         if (key < 0 || key > 127) return;
         vel = vel < 0.0f ? 0.0f : vel > 1.0f ? 1.0f : vel;
-        const int slideFrom = portamentoFrom; // CC 84's key, spent on this note whatever it does
-        portamentoFrom = -1;
         const uint8_t kind = machineKind();
+        // The key it plays (playKey: KIT's pad in any bank, else the key itself): from here on a key is that one,
+        // so its note-off, a choke, a re-press from another bank and CC 84 naming it all meet the same voices.
+        key = playKey (kind, key);
+        const int slideFrom = portamentoFrom < 0 ? -1 : playKey (kind, portamentoFrom); // CC 84's, spent on this note
+        portamentoFrom = -1;
         if (kind == kit)
         {
             const int slot = key - kitFirstKey;
@@ -307,7 +310,7 @@ public:
 
     // The key's notes let go; with a note id (>= 0) only that note, where its voice has an id of its own. While
     // the sustain pedal is down they sound on instead, until it lifts.
-    void noteOff (int key, int32_t noteId = -1) { releaseKey (key, noteId, false); }
+    void noteOff (int key, int32_t noteId = -1) { releaseKey (playKey (machineKind(), key), noteId, false); }
 
     // Every note let go at once, the pedal's held ones too (CC 123); the pedal itself stays as it is.
     void releaseAllNotes()
@@ -342,6 +345,7 @@ public:
     // A choke: the voices of `key` (all of them for -1) gone at once; with a note id, as noteOff.
     void chokeKey (int key, int32_t noteId = -1)
     {
+        if (key >= 0) key = playKey (machineKind(), key);
         for (auto& voice : voices)
             if (voice.on && (key < 0 || voice.key == key) && sameNote (voice, noteId)) chokeVoice (voice);
     }
