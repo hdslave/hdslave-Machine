@@ -16,6 +16,10 @@ Built for the Akai MPC Sample running [Melodee](https://github.com/keremimo/melo
 
 Every machine runs through a shared voice section — filter with its own envelope, drive, amp envelope, and a routable LFO targeting pitch, filter, level, or any Data knob. Under **hdslaveOS**, Machine renders its own bespoke raised-banner screen with live visualizers for each engine (`ui/`); in stock Melodee or other CLAP hosts, it exposes standard parameter pages.
 
+## hdslave plug-in license
+
+You may use these plug-ins to make, perform, record and sell music, including paid client work, without royalties or credit to hdslave. You may share complete, unchanged official releases for free with their notices intact. Selling the software, including it in a paid product or subscription, or distributing a modified version requires prior written permission from hdslave. Third-party components keep their own licenses. [Full plug-in license](LICENSE.txt).
+
 ## Machines
 
 MACHINE picks one. Data A–H (and for KICK also I and J) then mean what that machine says. A new machine sets its

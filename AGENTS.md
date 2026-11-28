@@ -48,3 +48,7 @@ Read `../AGENTS.md`, then `../Workflow/plugins.md` and `../Workflow/host-facts.m
   - Machine knobs are the fixed slots Data A-J, whose text changes per machine, because hosts don't re-read parameter names.
 - A machine change resets Data to that machine's defaults, through output param events.
 - **139 parameters** (35 shared + 8 KIT slots of 13) is not a multiple of three for hdslaveOS's Edit rows. Accepted as it stands: never pad the table with filler parameters to reach one; only real appended parameters may land it on a multiple.
+
+## Release packaging
+
+Every release ZIP includes the full repository `LICENSE.txt` beside the third-party notices, outside signed plug-in bundles. Preserve both when packaging the plug-in for another project.
