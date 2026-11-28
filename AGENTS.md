@@ -49,3 +49,7 @@ Read `../AGENTS.md`, then `../Workflow/plugins.md` and `../Workflow/host-facts.m
 - A machine change resets Data to that machine's defaults, through output param events.
 - **The pads.** `src/machine.cpp` embeds Melodee's drum-map JSON (`padMapJson`, kept by `padsJson()`), so hdslaveOS plays the track's pads as keys 36-51 and − / + move the bank. Every incoming key goes through `playKey()` in `src/params.h` before the engine uses it, note-offs, chokes and CC 84 included. Only KIT maps keys (slot = ((key-36) mod 16) mod 8, every bank the same hit); every other machine plays each key exactly as 0.1.7 did, because a key that already sounded must never change. Keep the map's notes at 36-51.
 - **139 parameters** (35 shared + 8 KIT slots of 13) is not a multiple of three for hdslaveOS's Edit rows. Accepted as it stands: never pad the table with filler parameters to reach one; only real appended parameters may land it on a multiple.
+
+## Release packaging
+
+Every release ZIP includes the full repository `LICENSE.txt` beside the third-party notices, outside signed plug-in bundles. Preserve both when packaging the plug-in for another project.
