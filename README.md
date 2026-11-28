@@ -8,8 +8,8 @@
     <th width="66%">macOS and Windows · CLAP</th>
   </tr>
   <tr>
-    <td align="center"><a href="docs/machine-screen.gif"><img src="docs/machine-screen.gif" alt="Machine custom raised-banner interface running in hdslaveOS"></a></td>
-    <td align="center"><a href="mac-clap/assets/desktop-preview.gif"><img src="mac-clap/assets/desktop-preview.gif" alt="Machine voice controls and oscilloscope during playback"></a></td>
+    <td align="center"><a href="docs/machine-screen.webp"><img src="docs/machine-screen.webp" alt="Machine custom raised-banner interface running in hdslaveOS"></a></td>
+    <td align="center"><a href="mac-clap/assets/desktop-preview.webp"><img src="mac-clap/assets/desktop-preview.webp" alt="Machine voice controls and oscilloscope during playback"></a></td>
   </tr>
 </table>
 
